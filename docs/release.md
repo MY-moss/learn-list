@@ -9,7 +9,7 @@
 - `RELEASE_KEY_ALIAS`
 - `RELEASE_KEY_PASSWORD`
 
-当前仓库已配置这四个 Secret；Secret 值不会回显，也不应写入 Issue、提交或聊天记录。Release 工作流只在推送 `vX.Y.Z` 标签时运行，缺少签名 Secret 时会失败，不会发布未签名包。当前稳定版为 `v0.2.1`。
+当前仓库已配置这四个 Secret；Secret 值不会回显，也不应写入 Issue、提交或聊天记录。Release 工作流会在推送 `vX.Y.Z` 标签时自动运行，也支持手动输入已有标签；缺少签名 Secret 时会失败，不会发布未签名包。当前稳定版为 `v0.2.1`。
 
 ## 发布步骤
 
@@ -40,4 +40,3 @@ Get-FileHash app\\build\\outputs\\apk\\release\\app-release.apk -Algorithm SHA25
 ```
 
 未设置签名环境变量时，构建会保留 `app-release-unsigned.apk`，这是预期的安全结果。
-
