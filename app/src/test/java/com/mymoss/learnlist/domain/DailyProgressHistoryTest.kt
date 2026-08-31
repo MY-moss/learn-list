@@ -90,5 +90,35 @@ class DailyProgressHistoryTest {
         assertEquals(4, summary.totalRequired)
         assertEquals(75, summary.percent)
     }
+    @Test
+    fun `finishing a reading plan counts today's action when the remainder is below the target`() {
+        val project = DailyProjectProgress("book", isArchived = false, isPaused = false)
+        val input = DailyProgressInput(
+            projects = listOf(project),
+            tasks = emptyList(),
+            readings = listOf(
+                DailyReadingProgress(
+                    id = "reading",
+                    projectId = project.id,
+                    totalPages = 100,
+                    currentPage = 100,
+                    dailyTarget = 10,
+                    startDate = day,
+                    isPaused = false,
+                    isArchived = false,
+                    pagesByDate = mapOf(day to 5),
+                    targetsByDate = emptyMap(),
+                ),
+            ),
+            todos = emptyList(),
+        )
+
+        val summary = DailyProgressCalculator().calculate(input, day)
+
+        assertEquals(1, summary.completedRequired)
+        assertEquals(1, summary.totalRequired)
+        assertEquals(100, summary.percent)
+    }
+
 }
 
