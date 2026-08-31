@@ -109,6 +109,11 @@ import com.mymoss.learnlist.data.local.ReviewLogEntity
 import com.mymoss.learnlist.data.local.TodoEntity
 import com.mymoss.learnlist.domain.DailyAction
 import com.mymoss.learnlist.domain.DailyProgressCalculator
+import com.mymoss.learnlist.domain.GoalActivity
+import com.mymoss.learnlist.domain.GoalDefinition
+import com.mymoss.learnlist.domain.GoalMetric
+import com.mymoss.learnlist.domain.GoalPeriod
+import com.mymoss.learnlist.domain.GoalProgressAggregator
 import com.mymoss.learnlist.domain.GoalProgressCalculator
 import com.mymoss.learnlist.domain.RecallRating
 import com.mymoss.learnlist.domain.TodoRecurrence
@@ -1097,27 +1102,37 @@ private fun calculateStreak(state: LearnListUiState, today: LocalDate, restDays:
 }
 
 private fun goalCurrent(goal: GoalEntity, state: LearnListUiState, today: LocalDate): Int {
-    val configuredStart = runCatching { LocalDate.parse(goal.startDate) }.getOrDefault(today)
-    val periodStart = when (goal.period) {
-        "WEEKLY" -> today.minusDays((today.dayOfWeek.value - 1).toLong())
-        "MONTHLY" -> today.withDayOfMonth(1)
-        "CUSTOM" -> configuredStart
-        else -> today
-    }
-    val start = periodStart.coerceAtLeast(configuredStart)
-    val end = goal.endDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }?.coerceAtMost(today) ?: today
-    fun inRange(date: String) = runCatching { LocalDate.parse(date) in start..end }.getOrDefault(false)
-    return when (goal.metric) {
-        "READING_PAGES" -> state.pageLogs.filter { log ->
-            inRange(log.localDate) && (goal.projectId == null || state.readingPlans.firstOrNull { it.id == log.planId }?.projectId == goal.projectId)
-        }.sumOf(PageLogEntity::pagesRead)
-        "REVIEW_TASKS" -> state.reviewLogs.count { log ->
-            inRange(log.reviewedOn) && (goal.projectId == null || state.tasks.firstOrNull { it.id == log.taskId }?.projectId == goal.projectId)
+    val metric = GoalMetric.fromStorage(goal.metric) ?: return 0
+    val period = GoalPeriod.fromStorage(goal.period) ?: return 0
+    val startDate = runCatching { LocalDate.parse(goal.startDate) }.getOrDefault(today)
+    val endDate = goal.endDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    return GoalProgressAggregator().current(
+        goal = GoalDefinition(metric = metric, period = period, startDate = startDate, endDate = endDate, projectId = goal.projectId),
+        today = today,
+        activities = goalActivities(state),
+    )
+}
+
+private fun goalActivities(state: LearnListUiState): List<GoalActivity> = buildList {
+    val planProjects = state.readingPlans.associate { it.id to it.projectId }
+    val taskProjects = state.tasks.associate { it.id to it.projectId }
+    state.pageLogs.forEach { log ->
+        runCatching { LocalDate.parse(log.localDate) }.getOrNull()?.let { date ->
+            add(GoalActivity(GoalMetric.READING_PAGES, date, log.pagesRead, planProjects[log.planId]))
         }
-        "TODO_DONE" -> state.todos.sumOf { it.completedDates.split(',').count(::inRange) }
-        else -> state.focusSessions.filter { session ->
-            inRange(session.startedAt.toLocalDate().toString()) && (goal.projectId == null || session.projectId == goal.projectId)
-        }.sumOf(FocusSessionEntity::actualMinutes)
+    }
+    state.reviewLogs.forEach { log ->
+        runCatching { LocalDate.parse(log.reviewedOn) }.getOrNull()?.let { date ->
+            add(GoalActivity(GoalMetric.REVIEW_TASKS, date, 1, taskProjects[log.taskId]))
+        }
+    }
+    state.todos.forEach { todo ->
+        todo.completedDates.split(',').mapNotNull { token -> runCatching { LocalDate.parse(token) }.getOrNull() }.forEach { date ->
+            add(GoalActivity(GoalMetric.TODO_DONE, date, 1))
+        }
+    }
+    state.focusSessions.forEach { session ->
+        add(GoalActivity(GoalMetric.FOCUS_MINUTES, session.startedAt.toLocalDate(), session.actualMinutes, session.projectId))
     }
 }
 
