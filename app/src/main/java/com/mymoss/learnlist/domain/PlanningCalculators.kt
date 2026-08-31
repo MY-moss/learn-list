@@ -55,7 +55,8 @@ class DailyProgressCalculator {
                 .forEach { reading ->
                     val target = reading.targetsByDate[date] ?: reading.dailyTarget
                     val pages = reading.pagesByDate[date] ?: 0
-                    add(DailyAction(isRequired = true, isCompleted = pages >= target.coerceAtLeast(1)))
+                    val planFinished = reading.currentPage >= reading.totalPages
+                    add(DailyAction(isRequired = true, isCompleted = planFinished || pages >= target.coerceAtLeast(1)))
                 }
 
             if (projectId == null) {

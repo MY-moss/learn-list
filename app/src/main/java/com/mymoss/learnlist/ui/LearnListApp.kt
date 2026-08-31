@@ -1061,7 +1061,8 @@ private fun ReviewTaskCard(task: LearningTaskEntity, onReview: () -> Unit, onIni
 @Composable
 private fun ReadingPlanCard(plan: ReadingPlanEntity, pagesToday: Int, targetPages: Int, onLog: () -> Unit, onRebalance: () -> Unit, onAdjustTarget: (Int) -> Unit) {
     val percent = (plan.currentPage * 100 / plan.totalPages.coerceAtLeast(1)).coerceIn(0, 100)
-    val targetDone = pagesToday >= targetPages
+    val planFinished = plan.currentPage >= plan.totalPages
+    val targetDone = planFinished || pagesToday >= targetPages
     Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1073,10 +1074,10 @@ private fun ReadingPlanCard(plan: ReadingPlanEntity, pagesToday: Int, targetPage
             LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary, trackColor = MaterialTheme.colorScheme.secondaryContainer)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("今日 ${pagesToday} / ${targetPages} 页", color = if (targetDone) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                    Text(if (targetDone) "今日目标已完成" else "还差 ${targetPages - pagesToday} 页", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    Text(if (planFinished) "本书已读完" else "今日 ${pagesToday} / ${targetPages} 页", color = if (targetDone) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text(if (planFinished) "全部页数已完成" else if (targetDone) "今日目标已完成" else "还差 ${targetPages - pagesToday} 页", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 }
-                FilledTonalButton(onClick = onLog, contentPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp)) { Text("记页数") }
+                FilledTonalButton(onClick = onLog, enabled = !planFinished, contentPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp)) { Text(if (planFinished) "已完成" else "记页数") }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("每日目标", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
