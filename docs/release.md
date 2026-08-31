@@ -9,6 +9,8 @@
 - `RELEASE_KEY_ALIAS`
 - `RELEASE_KEY_PASSWORD`
 
+当前仓库已配置这四个 Secret；Secret 值不会回显，也不应写入 Issue、提交或聊天记录。Release 工作流只在推送 `vX.Y.Z` 标签时运行，缺少签名 Secret 时会失败，不会发布未签名包。
+
 ## 发布步骤
 
 1. 修改 `app/build.gradle.kts` 中的 `versionCode` 和 `versionName`。

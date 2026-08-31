@@ -34,6 +34,7 @@ data class LearningTaskEntity(
     val isRequired: Boolean,
     val isArchived: Boolean,
     val hasLearned: Boolean,
+    val initialLearningDate: String?,
     val stage: Int,
     val nextReviewDate: String?,
     val snoozedUntil: String?,
@@ -185,3 +186,4 @@ data class ReminderEntity(
     val createdAt: Long,
     val updatedAt: Long,
 )
+

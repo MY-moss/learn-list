@@ -18,6 +18,7 @@ import com.mymoss.learnlist.domain.RecallRating
 import com.mymoss.learnlist.domain.ReviewState
 import com.mymoss.learnlist.domain.ReadingPlanCalculator
 import com.mymoss.learnlist.domain.ReadingPlanService
+import com.mymoss.learnlist.domain.TodoCompletion
 import com.mymoss.learnlist.domain.TodoRepeatRule
 import java.time.LocalDate
 import java.util.UUID
@@ -76,6 +77,7 @@ class LearnListRepository(
             id = newId(), projectId = projectId, title = title.trim(),
             prompt = prompt.trim(), notes = notes.trim(), source = source.trim(),
             isRequired = isRequired, isArchived = false, hasLearned = false,
+            initialLearningDate = null,
             stage = 0, nextReviewDate = null, snoozedUntil = null,
             createdAt = now, updatedAt = now,
         )
@@ -91,6 +93,7 @@ class LearnListRepository(
             dao.updateTask(
                 task.copy(
                     hasLearned = true,
+                    initialLearningDate = completedDate.toString(),
                     stage = state.stage,
                     nextReviewDate = state.nextReviewDate?.toString(),
                     snoozedUntil = null,
@@ -269,11 +272,17 @@ class LearnListRepository(
     }
 
     suspend fun completeTodo(todoId: String, date: LocalDate = LocalDate.now()) {
+        setTodoCompleted(todoId, date, completed = true)
+    }
+
+    suspend fun setTodoCompleted(todoId: String, date: LocalDate = LocalDate.now(), completed: Boolean) {
         val todo = dao.getTodo(todoId) ?: return
-        val dateToken = date.toString()
-        val completed = todo.completedDates.split(',').filter(String::isNotBlank).toMutableSet()
-        completed += dateToken
-        dao.updateTodo(todo.copy(completedDates = completed.sorted().joinToString(","), updatedAt = System.currentTimeMillis()))
+        dao.updateTodo(
+            todo.copy(
+                completedDates = TodoCompletion.setCompleted(todo.completedDates, date, completed),
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
     }
 
     suspend fun addFocusSession(
@@ -464,3 +473,4 @@ data class BackupSnapshot(
     val countdowns: List<CountdownEntity>,
     val reminders: List<ReminderEntity>,
 )
+

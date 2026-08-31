@@ -152,6 +152,11 @@ class LearnListViewModel(
         say("待办已完成")
     }
 
+    fun toggleTodo(id: String, date: LocalDate, currentlyCompleted: Boolean) = action {
+        repository.setTodoCompleted(id, date, completed = !currentlyCompleted)
+        say(if (currentlyCompleted) "已撤销待办完成" else "待办已完成")
+    }
+
     fun addGoal(title: String, metric: String, targetText: String, period: String, endDateText: String = "") = action {
         val target = targetText.toIntOrNull() ?: error("目标值需要是数字")
         val endDate = endDateText.trim().takeIf(String::isNotBlank)?.let(LocalDate::parse)
@@ -360,3 +365,4 @@ fun Long.toLocalDate(): LocalDate = Instant.ofEpochMilli(this).atZone(ZoneId.sys
 fun String.toDayOfWeekSet(): Set<DayOfWeek> = split(',').mapNotNull { token ->
     token.trim().toIntOrNull()?.let { runCatching { DayOfWeek.of(it) }.getOrNull() }
 }.toSet()
+
