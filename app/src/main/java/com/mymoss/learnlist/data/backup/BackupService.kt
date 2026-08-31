@@ -261,8 +261,9 @@ class BackupService(
         snapshot.todos.forEach { todo ->
             if (todo.repeatRule !in setOf("ONCE", "DAILY", "WEEKLY", "WORKDAYS", "CUSTOM")) invalid("待办重复规则无效")
             if (todo.repeatRule == "ONCE" && todo.dueDate == null) invalid("一次性待办缺少日期")
-            if (todo.repeatRule == "CUSTOM" && todo.customRepeatDays.split(',').none { token -> token.trim().toIntOrNull()?.let { it in 1..7 } == true }) invalid("自定义待办没有有效星期")
+            if (todo.repeatRule == "CUSTOM") validateWeekdayCsv(todo.customRepeatDays, "自定义待办星期")
             todo.dueDate?.let { validateDate(it, "dueDate") }
+            validateDateCsv(todo.completedDates, "待办完成记录")
         }
         snapshot.focusSessions.forEach { session ->
             if (session.projectId != null && session.projectId !in projectIds) invalid("专注记录引用不存在的项目")
@@ -290,7 +291,7 @@ class BackupService(
             if (reminder.kind == "SUMMARY" && reminder.projectId != null) invalid("每日进度提醒不能绑定项目")
             if (reminder.projectId != null && reminder.projectId !in projectIds) invalid("提醒引用不存在的项目")
             if (reminder.timeMinutes !in 0..1439) invalid("提醒时间无效")
-            if (reminder.repeatDays.split(',').none { token -> token.trim().toIntOrNull()?.let { it in 1..7 } == true }) invalid("提醒没有有效星期")
+            validateWeekdayCsv(reminder.repeatDays, "提醒星期")
             if (reminder.quietStartMinutes != null && reminder.quietStartMinutes !in 0..1439) invalid("安静开始时间无效")
             if (reminder.quietEndMinutes != null && reminder.quietEndMinutes !in 0..1439) invalid("安静结束时间无效")
         }
@@ -298,6 +299,21 @@ class BackupService(
 
     private fun validateDate(value: String, field: String) {
         if (runCatching { LocalDate.parse(value) }.isFailure) invalid("$field 日期无效")
+    }
+
+    private fun validateDateCsv(value: String, field: String) {
+        if (value.isBlank()) return
+        value.split(',').forEach { token ->
+            if (token.isBlank()) invalid("$field 日期无效")
+            validateDate(token.trim(), field)
+        }
+    }
+
+    private fun validateWeekdayCsv(value: String, field: String) {
+        val tokens = value.split(',')
+        if (value.isBlank() || tokens.any { token -> token.trim().toIntOrNull()?.let { it in 1..7 } != true }) {
+            invalid("${field}无效")
+        }
     }
 
     private fun invalid(message: String): Nothing = throw BackupException("备份数据无效：$message")
