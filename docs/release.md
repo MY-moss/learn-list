@@ -25,7 +25,7 @@
 4. `.github/workflows/release.yml` 会用 Actions Secret 签名 Release APK，验证签名，生成同名 `.sha256` 文件并创建 GitHub Release。
 5. 在一台已安装旧版本的 Android 设备上验证 SHA-256、系统安装器和覆盖升级，再向可信用户分发。
 
-如果标签推送没有触发工作流，可以在 Actions 中手动运行 `Android Release`，并在 `Use workflow` 的分支/标签下拉框中选择一个已经存在的 `vX.Y.Z` 标签；工作流会先检出该标签，再执行同样的签名、校验和发布步骤。
+如果标签推送没有触发工作流，可以在 Actions 中手动运行 `Android Release`，选择 `main` 分支并在 `release_tag` 输入框填写一个已经存在的 `vX.Y.Z` 标签；工作流会先检出该标签，再执行同样的签名、校验和发布步骤。这样不依赖旧标签里是否已经包含最新的工作流文件。
 
 ## 本地签名验证
 
