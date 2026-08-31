@@ -21,7 +21,7 @@ Learn List 是一个离线优先的 Android 学习打卡应用：把艾宾浩斯
 
 ## 构建
 
-工程使用 Kotlin、Jetpack Compose、Room、DataStore 和单一 `app` 模块。最低 Android 版本为 8.0（API 26），targetSdk 为 36。由于当前 Compose、Navigation 与 Lifecycle 依赖要求 API 37，`compileSdk` 使用 37；这不改变 Android 8.0+ 的安装范围。
+工程使用 Kotlin、Jetpack Compose、Room、DataStore 和单一 `app` 模块。最低 Android 版本为 8.0（API 26），`compileSdk/targetSdk` 均为 36；Compose BOM 使用 2026.06.00，Navigation Compose 使用 2.9.8，保持 API 36 编译基线，不改变 Android 8.0+ 的安装范围。
 
 本机 SDK 安装在 `D:\android-sdk\sdk`（如果 Android Studio 使用嵌套 SDK 目录，请以实际 SDK 根目录为准），构建基线为 JDK 17。Windows PowerShell 示例：
 
