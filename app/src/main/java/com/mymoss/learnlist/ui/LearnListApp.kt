@@ -501,7 +501,7 @@ private fun TodayScreen(
                 }
             }
         }
-        item { SectionHeader("今天先做这些", "按优先顺序安排的必做行动") }
+        item { SectionHeader("今天先做这些", "建议先完成 20 项；所有逾期复习都会列出") }
         if (dueTasks.isEmpty()) item { EmptyCard("没有积压复习。去学习页添加一个新任务吧。", Icons.Default.AutoAwesome) }
         items(dueTasks, key = { it.id }) { task ->
             ReviewTaskCard(task, { onReview(task) }, { viewModel.initialLearn(task.id) }, compact = true)
@@ -520,7 +520,7 @@ private fun TodayScreen(
         }
         item { SectionHeader("今日待办", "重复规则会自动带到正确的日期") }
         if (dueTodos.isEmpty()) item { EmptyCard("今天没有到期待办，给自己留一点空间。", Icons.Default.CheckCircleOutline) }
-        items(dueTodos.take(8), key = { it.id }) { todo ->
+        items(dueTodos, key = { it.id }) { todo ->
             TodoCard(todo, today) { viewModel.toggleTodo(todo.id, today, todo.isCompletedOn(today)) }
         }
     }
