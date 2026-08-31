@@ -115,9 +115,10 @@ class ReadingPlanCalculator : ReadingPlanService {
         val days = (deadline.toEpochDay() - from.toEpochDay() + 1).toInt()
         val remaining = totalPages - currentPage
         if (remaining == 0) return emptyList()
-        val base = remaining / days
-        val remainder = remaining % days
-        return (0 until days).map { offset ->
+        val allocationDays = minOf(days, remaining)
+        val base = remaining / allocationDays
+        val remainder = remaining % allocationDays
+        return (0 until allocationDays).map { offset ->
             PageTarget(
                 date = from.plusDays(offset.toLong()),
                 pages = base + if (offset < remainder) 1 else 0,

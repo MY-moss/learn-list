@@ -68,6 +68,17 @@ class BackupServiceInstrumentedTest {
             // Expected.
         }
 
+        val invalidTodoDates = JSONObject(String(service.export(false), StandardCharsets.UTF_8))
+            .put("todos", JSONArray().put(JSONObject().put("id", "todo").put("title", "坏日期").put("repeatRule", "DAILY").put("completedDates", "not-a-date")))
+            .toString()
+            .toByteArray(StandardCharsets.UTF_8)
+        try {
+            service.preview(invalidTodoDates, "")
+            throw AssertionError("非法待办完成日期应该在预览阶段拒绝")
+        } catch (_: BackupException) {
+            // Expected.
+        }
+
         val targetDatabase = inMemoryDatabase(context)
         val targetRepository = LearnListRepository(targetDatabase)
         val targetSettings = SettingsRepository(context)
@@ -88,3 +99,4 @@ class BackupServiceInstrumentedTest {
     private fun inMemoryDatabase(context: Context): LearnListDatabase =
         Room.inMemoryDatabaseBuilder(context, LearnListDatabase::class.java).build()
 }
+
