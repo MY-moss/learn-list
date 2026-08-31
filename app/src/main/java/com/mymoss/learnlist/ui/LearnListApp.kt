@@ -352,6 +352,7 @@ fun LearnListApp(
                     updateState = updateState,
                     onDownloadUpdate = onDownloadUpdate,
                     onDismissUpdate = onDismissUpdate,
+                    onRequestNotifications = onRequestNotifications,
                     onRequestExactAlarms = onRequestExactAlarms,
                     onNewReminder = viewModel::addReminder,
                     onSetReminderEnabled = viewModel::setReminderEnabled,
@@ -880,6 +881,7 @@ private fun SettingsScreen(
     updateState: UpdateUiState,
     onDownloadUpdate: () -> Unit,
     onDismissUpdate: () -> Unit,
+    onRequestNotifications: () -> Unit,
     onRequestExactAlarms: () -> Unit,
     onNewReminder: (String?, String, String, String, String, String) -> Unit,
     onSetReminderEnabled: (String, Boolean) -> Unit,
@@ -921,7 +923,10 @@ private fun SettingsScreen(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { showReminderDialog = true }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("添加提醒") }
-                        OutlinedButton(onClick = onRequestExactAlarms, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Notifications, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("提醒权限") }
+                        OutlinedButton(onClick = onRequestNotifications, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Notifications, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("通知权限") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onRequestExactAlarms, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Timer, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("精确提醒权限") }
                     }
                     if (state.reminders.isEmpty()) Text("还没有固定提醒，添加一个适合你的节奏。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                     state.reminders.forEach { reminder ->
