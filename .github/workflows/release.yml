@@ -15,7 +15,6 @@ jobs:
       RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-      RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/learn-list-release.jks
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - name: Checkout
@@ -48,9 +47,11 @@ jobs:
       - name: Restore signing keystore
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/learn-list-release.jks
         run: |
           test -n "$RELEASE_KEYSTORE_BASE64"
           echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RELEASE_KEYSTORE_PATH"
+          echo "RELEASE_KEYSTORE_PATH=$RELEASE_KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: Build signed release
         run: ./gradlew assembleRelease
