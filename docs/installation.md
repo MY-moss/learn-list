@@ -2,8 +2,10 @@
 
 ## 安装首版 APK
 
+推荐下载已签名的稳定版：[v0.1.1 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.1.1)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.1.1/learn-list-v0.1.1.apk)；旁边的 `.sha256` 文件可用于校验完整性。
+
 1. 在手机上允许文件管理器安装来自此来源的应用。
-2. 将 `app/build/outputs/apk/debug/app-debug.apk` 传到手机并打开。
+2. 将 Release APK 或 `app/build/outputs/apk/debug/app-debug.apk` 传到手机并打开。
 3. 安装后在系统设置中按需授予通知权限；如果需要精确时间提醒，再授予精确闹钟权限。
 
 Debug APK 只适合自用测试。正式覆盖升级必须使用同一把 Release keystore 签名的 APK；未签名 Release 不能直接安装。
@@ -32,3 +34,4 @@ Debug APK 只适合自用测试。正式覆盖升级必须使用同一把 Releas
 ## GitHub 更新
 
 应用只检查仓库的稳定 Release，下载前要求 HTTPS GitHub 地址和 `.sha256` 文件，校验通过后交给 Android 系统安装器。安装仍需要用户确认，不会静默安装。
+
