@@ -25,6 +25,7 @@ import com.mymoss.learnlist.system.FocusTimerScheduler
 import com.mymoss.learnlist.system.ReminderScheduler
 import com.mymoss.learnlist.system.UpdateInstaller
 import com.mymoss.learnlist.ui.LearnListApp
+import com.mymoss.learnlist.ui.UpdateUiState
 import com.mymoss.learnlist.ui.theme.LearnListTheme
 import java.io.ByteArrayOutputStream
 import java.time.Duration
@@ -33,6 +34,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
@@ -44,6 +47,7 @@ class MainActivity : ComponentActivity() {
     private var pendingImportPassword: String = ""
     private var pendingImportMode: BackupImportMode = BackupImportMode.MERGE
     private val pendingBackupImport = kotlinx.coroutines.flow.MutableStateFlow<PendingBackupImport?>(null)
+    private val updateState = MutableStateFlow(UpdateUiState())
 
     private val createBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri == null) return@registerForActivityResult
@@ -79,6 +83,9 @@ class MainActivity : ComponentActivity() {
                     onExportBackup = ::exportBackup,
                     onImportBackup = ::chooseImport,
                     onCheckForUpdate = ::checkForUpdate,
+                    updateState = updateState.collectAsState().value,
+                    onDownloadUpdate = ::downloadAvailableUpdate,
+                    onDismissUpdate = { updateState.update { it.copy(available = null) } },
                     onRequestNotifications = ::requestNotificationPermission,
                     onRequestExactAlarms = ::requestExactAlarmPermission,
                     pendingImport = pending,
@@ -152,32 +159,61 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkForUpdate() {
-        lifecycleScope.launch {
-            showToast("正在检查 GitHub Release…")
-            ReleaseChecker().checkLatest().fold(
-                onSuccess = { info ->
-                    if (info == null) showToast("当前已是最新版本")
-                    else downloadAndInstall(info)
-                },
-                onFailure = { showToast("检查更新失败：${it.message}") },
-            )
-        }
+        lifecycleScope.launch { performUpdateCheck(manual = true) }
     }
 
-    private suspend fun downloadAndInstall(info: com.mymoss.learnlist.system.UpdateInfo) {
-        showToast("发现 ${info.versionName}，正在下载并校验…")
-        runCatching {
-            val apk = UpdateInstaller(this@MainActivity).downloadAndVerify(info)
-            withContext(Dispatchers.Main) { UpdateInstaller(this@MainActivity).install(apk) }
-        }.onFailure { showToast("更新失败：${it.message}") }
+    private suspend fun performUpdateCheck(manual: Boolean) {
+        if (updateState.value.isChecking || updateState.value.isDownloading) return
+        updateState.update { it.copy(isChecking = true, errorMessage = null, statusMessage = if (manual) "正在检查 GitHub Release…" else "自动检查中…") }
+        val checkedAt = System.currentTimeMillis()
+        val result = ReleaseChecker().checkLatest()
+        settingsRepository.update { it.copy(lastUpdateCheckEpochMillis = checkedAt) }
+        result.fold(
+            onSuccess = { info ->
+                updateState.update {
+                    it.copy(
+                        isChecking = false,
+                        available = info,
+                        statusMessage = if (info == null) "当前已是最新版本" else "发现 v${info.versionName}，可以下载更新",
+                        errorMessage = null,
+                        lastCheckedAtEpochMillis = checkedAt,
+                    )
+                }
+                if (manual) showToast(if (info == null) "当前已是最新版本" else "发现新版本 v${info.versionName}，请在更新中心确认")
+            },
+            onFailure = { error ->
+                updateState.update { it.copy(isChecking = false, statusMessage = null, errorMessage = error.message ?: "检查更新失败", lastCheckedAtEpochMillis = checkedAt) }
+                if (manual) showToast("检查更新失败：${error.message}")
+            },
+        )
+    }
+
+    private fun downloadAvailableUpdate() {
+        val info = updateState.value.available ?: return
+        lifecycleScope.launch {
+            updateState.update { it.copy(isDownloading = true, errorMessage = null, statusMessage = "正在下载并校验 v${info.versionName}…") }
+            runCatching {
+                val apk = UpdateInstaller(this@MainActivity).downloadAndVerify(info)
+                withContext(Dispatchers.Main) { UpdateInstaller(this@MainActivity).install(apk) }
+            }.fold(
+                onSuccess = { installerOpened ->
+                    updateState.update { it.copy(isDownloading = false, statusMessage = if (installerOpened) "安装确认已打开，请按系统提示完成更新" else "请在系统设置中允许本应用安装未知来源") }
+                    showToast(if (installerOpened) "安装确认已打开" else "请允许安装未知来源后重试")
+                },
+                onFailure = { error ->
+                    updateState.update { it.copy(isDownloading = false, errorMessage = error.message ?: "更新失败", statusMessage = null) }
+                    showToast("更新失败：${error.message}")
+                },
+            )
+        }
     }
 
     private suspend fun checkAutomatically() {
         val settings = settingsRepository.settings.first()
         val now = System.currentTimeMillis()
+        updateState.update { it.copy(lastCheckedAtEpochMillis = settings.lastUpdateCheckEpochMillis.takeIf { value -> value > 0L }) }
         if (now - settings.lastUpdateCheckEpochMillis < Duration.ofHours(24).toMillis()) return
-        settingsRepository.update { it.copy(lastUpdateCheckEpochMillis = now) }
-        ReleaseChecker().checkLatest().getOrNull()?.let { info -> showToast("GitHub 有新版本 ${info.versionName}，请在设置中手动更新") }
+        performUpdateCheck(manual = false)
     }
 
     private fun readBackup(uri: android.net.Uri): ByteArray {
@@ -204,3 +240,4 @@ class MainActivity : ComponentActivity() {
 
     private companion object { const val NOTIFICATION_REQUEST_CODE = 1001 }
 }
+

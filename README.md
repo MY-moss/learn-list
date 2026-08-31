@@ -15,6 +15,8 @@ Learn List 是一个离线优先的 Android 学习打卡应用：把艾宾浩斯
 - 加密 AES-GCM 备份、明文备份、导入预览、合并/替换、数据库迁移。
 - GitHub Stable Release 更新：下载后校验 SHA-256，再交给 Android 安装器，不静默安装。
 
+界面采用暖纸张、番茄红与叶绿的学习工作台风格：今日驾驶舱优先展示必做进度，专注页提供一键番茄钟，设置页集中管理提醒、备份和更新。应用启动后每 24 小时自动检查一次 GitHub 稳定版，也支持在“设置 → 更新中心”手动检查。
+
 首版不包含云同步、账号、PDF/OCR、AI 生成卡片、社交排行、应用屏蔽、穿戴设备、日历同步和桌面小组件。
 
 ## 构建
@@ -72,3 +74,4 @@ GitHub Actions 使用以下 Secrets：`RELEASE_KEYSTORE_BASE64`、`RELEASE_STORE
 直接从 GitHub 侧载面向自用或少量可信用户；随着 Android 开发者身份验证要求逐步实施，后续可增加商店或已验证分发渠道。
 
 安装、备份和更新说明见 [`docs/installation.md`](docs/installation.md) 与 [`docs/release.md`](docs/release.md)；更多领域词汇、架构取舍和验收清单见 [`CONTEXT.md`](CONTEXT.md)、[`docs/adr`](docs/adr) 和 [`tasks/plan.md`](tasks/plan.md)。
+
