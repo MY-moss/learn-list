@@ -1033,7 +1033,8 @@ private fun TodoEntity.isDueOn(date: LocalDate): Boolean {
     val rule = runCatching { TodoRepeatRule.valueOf(repeatRule) }.getOrDefault(TodoRepeatRule.ONCE)
     val base = dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
     val custom = customRepeatDays.split(',').mapNotNull { token -> token.trim().toIntOrNull()?.takeIf { it in 1..7 }?.let(java.time.DayOfWeek::of) }.toSet()
-    return TodoRecurrence.isDue(rule, base, date, custom)
+    val completed = completedDates.split(',').mapNotNull { token -> runCatching { LocalDate.parse(token) }.getOrNull() }.toSet()
+    return TodoRecurrence.isDue(rule, base, date, customDays = custom, completedDates = completed)
 }
 
 private fun TodoEntity.isCompletedOn(date: LocalDate): Boolean = completedDates.split(',').any { it == date.toString() }

@@ -179,7 +179,10 @@ class ReminderReceiver : BroadcastReceiver() {
         val custom = todo.customRepeatDays.split(',').mapNotNull { token ->
             token.trim().toIntOrNull()?.takeIf { it in 1..7 }?.let { runCatching { DayOfWeek.of(it) }.getOrNull() }
         }.toSet()
-        return TodoRecurrence.isDue(rule, base, date, custom)
+        val completed = todo.completedDates.split(',').mapNotNull { token ->
+            runCatching { LocalDate.parse(token) }.getOrNull()
+        }.toSet()
+        return TodoRecurrence.isDue(rule, base, date, customDays = custom, completedDates = completed)
     }
 
     private fun Long.toLocalDate(): LocalDate = java.time.Instant.ofEpochMilli(this).atZone(java.time.ZoneId.systemDefault()).toLocalDate()

@@ -12,7 +12,23 @@ class DailyPlanningTest {
     @Test
     fun `recurring todo follows its selected rule`() {
         assertTrue(TodoRecurrence.isDue(TodoRepeatRule.ONCE, monday, monday))
-        assertFalse(TodoRecurrence.isDue(TodoRepeatRule.ONCE, monday, monday.plusDays(1)))
+        assertTrue(TodoRecurrence.isDue(TodoRepeatRule.ONCE, monday, monday.plusDays(1)))
+        assertTrue(
+            TodoRecurrence.isDue(
+                rule = TodoRepeatRule.ONCE,
+                baseDate = monday,
+                date = monday.plusDays(1),
+                completedDates = setOf(monday.plusDays(1)),
+            ),
+        )
+        assertFalse(
+            TodoRecurrence.isDue(
+                rule = TodoRepeatRule.ONCE,
+                baseDate = monday,
+                date = monday.plusDays(1),
+                completedDates = setOf(monday),
+            ),
+        )
         assertFalse(TodoRecurrence.isDue(TodoRepeatRule.ONCE, null, monday))
         assertTrue(TodoRecurrence.isDue(TodoRepeatRule.DAILY, monday, monday.plusDays(1)))
         assertTrue(TodoRecurrence.isDue(TodoRepeatRule.WEEKLY, monday, monday.plusDays(7)))
