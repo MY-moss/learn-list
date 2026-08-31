@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CountdownEntity::class,
         ReminderEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class LearnListDatabase : RoomDatabase() {
@@ -34,5 +34,12 @@ abstract class LearnListDatabase : RoomDatabase() {
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_reading_targets_planId_localDate ON reading_targets(planId, localDate)")
             }
         }
+
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE learning_tasks ADD COLUMN initialLearningDate TEXT")
+            }
+        }
     }
 }
+

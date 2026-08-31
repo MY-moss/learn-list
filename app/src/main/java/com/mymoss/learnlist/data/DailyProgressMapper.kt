@@ -1,0 +1,112 @@
+package com.mymoss.learnlist.data
+
+import com.mymoss.learnlist.data.local.PageLogEntity
+import com.mymoss.learnlist.data.local.ProjectEntity
+import com.mymoss.learnlist.data.local.ReadingPlanEntity
+import com.mymoss.learnlist.data.local.ReadingTargetEntity
+import com.mymoss.learnlist.data.local.ReviewLogEntity
+import com.mymoss.learnlist.data.local.LearningTaskEntity
+import com.mymoss.learnlist.data.local.TodoEntity
+import com.mymoss.learnlist.domain.DailyProgressInput
+import com.mymoss.learnlist.domain.DailyProjectProgress
+import com.mymoss.learnlist.domain.DailyReadingProgress
+import com.mymoss.learnlist.domain.DailyTaskProgress
+import com.mymoss.learnlist.domain.DailyTodoProgress
+import com.mymoss.learnlist.domain.TodoCompletion
+import com.mymoss.learnlist.domain.TodoRepeatRule
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+
+/** Converts persisted records into the input shared by all daily-progress consumers. */
+object DailyProgressMapper {
+    fun from(snapshot: BackupSnapshot): DailyProgressInput = from(
+        projects = snapshot.projects,
+        tasks = snapshot.tasks,
+        reviewLogs = snapshot.reviewLogs,
+        readingPlans = snapshot.readingPlans,
+        readingTargets = snapshot.readingTargets,
+        pageLogs = snapshot.pageLogs,
+        todos = snapshot.todos,
+    )
+
+    fun from(
+        projects: List<ProjectEntity>,
+        tasks: List<LearningTaskEntity>,
+        reviewLogs: List<ReviewLogEntity>,
+        readingPlans: List<ReadingPlanEntity>,
+        readingTargets: List<ReadingTargetEntity>,
+        pageLogs: List<PageLogEntity>,
+        todos: List<TodoEntity>,
+    ): DailyProgressInput {
+        val reviewedDatesByTask = reviewLogs.groupBy(ReviewLogEntity::taskId).mapValues { (_, logs) ->
+            logs.mapNotNull { it.reviewedOn.asLocalDate() }.toSet()
+        }
+        val pagesByPlan = pageLogs.groupBy(PageLogEntity::planId).mapValues { (_, logs) ->
+            logs.groupingBy { it.localDate.asLocalDate() }
+                .fold(0) { total, log -> total + log.pagesRead.coerceAtLeast(0) }
+                .filterKeys { it != null }
+                .mapKeys { requireNotNull(it.key) }
+        }
+        val targetsByPlan = readingTargets.groupBy(ReadingTargetEntity::planId).mapValues { (_, targets) ->
+            targets.mapNotNull { target -> target.localDate.asLocalDate()?.let { it to target.targetPages } }.toMap()
+        }
+
+        return DailyProgressInput(
+            projects = projects.map { project ->
+                DailyProjectProgress(project.id, project.isArchived, project.isPaused)
+            },
+            tasks = tasks.map { task ->
+                DailyTaskProgress(
+                    id = task.id,
+                    projectId = task.projectId,
+                    isRequired = task.isRequired,
+                    isArchived = task.isArchived,
+                    hasLearned = task.hasLearned,
+                    initialLearningDate = task.initialLearningDate.asLocalDate(),
+                    nextReviewDate = task.nextReviewDate.asLocalDate(),
+                    snoozedUntil = task.snoozedUntil.asLocalDate(),
+                    createdOn = task.createdAt.toLocalDate(),
+                    reviewedDates = reviewedDatesByTask[task.id].orEmpty(),
+                )
+            },
+            readings = readingPlans.map { plan ->
+                DailyReadingProgress(
+                    id = plan.id,
+                    projectId = plan.projectId,
+                    totalPages = plan.totalPages,
+                    currentPage = plan.currentPage,
+                    dailyTarget = plan.dailyTarget,
+                    startDate = plan.startDate.asLocalDate() ?: LocalDate.MIN,
+                    isPaused = plan.isPaused,
+                    isArchived = plan.isArchived,
+                    pagesByDate = pagesByPlan[plan.id].orEmpty(),
+                    targetsByDate = targetsByPlan[plan.id].orEmpty(),
+                )
+            },
+            todos = todos.map { todo ->
+                DailyTodoProgress(
+                    id = todo.id,
+                    isRequired = todo.isRequired,
+                    isArchived = todo.isArchived,
+                    repeatRule = runCatching { TodoRepeatRule.valueOf(todo.repeatRule) }.getOrDefault(TodoRepeatRule.ONCE),
+                    baseDate = todo.dueDate.asLocalDate(),
+                    customDays = todo.customRepeatDays.toDayOfWeekSet(),
+                    completedDates = TodoCompletion.dates(todo.completedDates),
+                )
+            },
+        )
+    }
+
+    private fun String?.asLocalDate(): LocalDate? = this?.let { value ->
+        runCatching { LocalDate.parse(value) }.getOrNull()
+    }
+
+    private fun String.toDayOfWeekSet(): Set<DayOfWeek> = split(',').mapNotNull { token ->
+        token.trim().toIntOrNull()?.takeIf { it in 1..7 }?.let { runCatching { DayOfWeek.of(it) }.getOrNull() }
+    }.toSet()
+
+    private fun Long.toLocalDate(): LocalDate = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
+}
+

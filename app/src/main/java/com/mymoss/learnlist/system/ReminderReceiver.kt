@@ -15,13 +15,9 @@ import com.mymoss.learnlist.LearnListApplication
 import com.mymoss.learnlist.MainActivity
 import com.mymoss.learnlist.R
 import com.mymoss.learnlist.data.BackupSnapshot
-import com.mymoss.learnlist.data.local.PageLogEntity
-import com.mymoss.learnlist.data.local.ProjectEntity
-import com.mymoss.learnlist.data.local.TodoEntity
+import com.mymoss.learnlist.data.DailyProgressMapper
 import com.mymoss.learnlist.domain.RecallRating
-import com.mymoss.learnlist.domain.TodoRecurrence
-import com.mymoss.learnlist.domain.TodoRepeatRule
-import java.time.DayOfWeek
+import com.mymoss.learnlist.domain.DailyProgressCalculator
 import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -135,33 +131,12 @@ class ReminderReceiver : BroadcastReceiver() {
     }
 
     private fun calculateProgress(snapshot: BackupSnapshot, projectId: String?): Progress {
-        val today = LocalDate.now()
-        val activeProjects = snapshot.projects.filter { !it.isArchived && !it.isPaused }
-            .filter { projectId == null || it.id == projectId }.map(ProjectEntity::id).toSet()
-        val actions = mutableListOf<Boolean>()
-        val requiredTasks = snapshot.tasks.filter { it.isRequired && !it.isArchived && it.projectId in activeProjects }
-        requiredTasks.filter { task -> isTaskDue(task, today) || isInitialLearningCompleted(task, today) }.forEach { task ->
-            val reviewed = snapshot.reviewLogs.any { it.taskId == task.id && it.reviewedOn == today.toString() }
-            val initiallyLearned = isInitialLearningCompleted(task, today)
-            actions += reviewed || initiallyLearned
-        }
-        val activePlans = snapshot.readingPlans.filter { plan ->
-            val startsOnOrBeforeToday = runCatching { LocalDate.parse(plan.startDate) <= today }.getOrDefault(true)
-            !plan.isArchived && !plan.isPaused && plan.projectId in activeProjects &&
-                startsOnOrBeforeToday &&
-                (plan.currentPage < plan.totalPages || snapshot.pageLogs.any { it.planId == plan.id && it.localDate == today.toString() })
-        }
-        activePlans.forEach { plan ->
-            val target = snapshot.readingTargets.firstOrNull { it.planId == plan.id && it.localDate == today.toString() }?.targetPages ?: plan.dailyTarget
-            val pages = snapshot.pageLogs.filter { it.planId == plan.id && it.localDate == today.toString() }.sumOf(PageLogEntity::pagesRead)
-            actions += pages >= target
-        }
-        if (projectId == null) {
-            snapshot.todos.filter { it.isRequired && !it.isArchived && isTodoDue(it, today) }.forEach { todo ->
-                actions += todo.completedDates.split(',').any { it == today.toString() }
-            }
-        }
-        return Progress(completed = actions.count { it }, total = actions.size)
+        val summary = DailyProgressCalculator().calculate(
+            input = DailyProgressMapper.from(snapshot),
+            date = LocalDate.now(),
+            projectId = projectId,
+        )
+        return Progress(completed = summary.completedRequired, total = summary.totalRequired)
     }
 
     private fun isTaskDue(task: com.mymoss.learnlist.data.local.LearningTaskEntity, date: LocalDate): Boolean {
@@ -169,23 +144,6 @@ class ReminderReceiver : BroadcastReceiver() {
         if (!task.hasLearned) return true
         return task.nextReviewDate?.let { runCatching { LocalDate.parse(it) <= date }.getOrDefault(true) } ?: true
     }
-
-    private fun isInitialLearningCompleted(task: com.mymoss.learnlist.data.local.LearningTaskEntity, date: LocalDate): Boolean =
-        task.hasLearned && task.updatedAt.toLocalDate() == date && task.nextReviewDate == date.plusDays(1).toString()
-
-    private fun isTodoDue(todo: TodoEntity, date: LocalDate): Boolean {
-        val rule = runCatching { TodoRepeatRule.valueOf(todo.repeatRule) }.getOrDefault(TodoRepeatRule.ONCE)
-        val base = todo.dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        val custom = todo.customRepeatDays.split(',').mapNotNull { token ->
-            token.trim().toIntOrNull()?.takeIf { it in 1..7 }?.let { runCatching { DayOfWeek.of(it) }.getOrNull() }
-        }.toSet()
-        val completed = todo.completedDates.split(',').mapNotNull { token ->
-            runCatching { LocalDate.parse(token) }.getOrNull()
-        }.toSet()
-        return TodoRecurrence.isDue(rule, base, date, customDays = custom, completedDates = completed)
-    }
-
-    private fun Long.toLocalDate(): LocalDate = java.time.Instant.ofEpochMilli(this).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
 
     private fun actionIntent(context: Context, action: String, taskId: String, notificationId: Int, reminderId: String?): PendingIntent = PendingIntent.getBroadcast(
         context,
@@ -220,3 +178,4 @@ class ReminderReceiver : BroadcastReceiver() {
 private object BuildPermission {
     fun canPost(context: Context): Boolean = android.os.Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
+

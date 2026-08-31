@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -106,8 +107,8 @@ import com.mymoss.learnlist.data.local.ProjectEntity
 import com.mymoss.learnlist.data.local.ReadingPlanEntity
 import com.mymoss.learnlist.data.local.ReadingTargetEntity
 import com.mymoss.learnlist.data.local.ReviewLogEntity
+import com.mymoss.learnlist.data.DailyProgressMapper
 import com.mymoss.learnlist.data.local.TodoEntity
-import com.mymoss.learnlist.domain.DailyAction
 import com.mymoss.learnlist.domain.DailyProgressCalculator
 import com.mymoss.learnlist.domain.GoalActivity
 import com.mymoss.learnlist.domain.GoalDefinition
@@ -115,7 +116,9 @@ import com.mymoss.learnlist.domain.GoalMetric
 import com.mymoss.learnlist.domain.GoalPeriod
 import com.mymoss.learnlist.domain.GoalProgressAggregator
 import com.mymoss.learnlist.domain.GoalProgressCalculator
+import com.mymoss.learnlist.domain.InitialLearningTracker
 import com.mymoss.learnlist.domain.RecallRating
+import com.mymoss.learnlist.domain.TodoCompletion
 import com.mymoss.learnlist.domain.TodoRecurrence
 import com.mymoss.learnlist.domain.TodoRepeatRule
 import java.time.DayOfWeek
@@ -257,7 +260,7 @@ fun LearnListApp(
                     onPause = viewModel::setProjectPaused,
                 )
             }
-            composable(AppTab.TODO.name) { TodoScreen(state, padding, currentDay, viewModel::completeTodo) }
+            composable(AppTab.TODO.name) { TodoScreen(state, padding, currentDay, viewModel::toggleTodo) }
             composable(AppTab.FOCUS.name) { FocusScreen(state, padding, viewModel::startFocus, viewModel::stopFocus) }
             composable(AppTab.STATS.name) {
                 StatsScreen(
@@ -381,7 +384,7 @@ private fun TodayScreen(
     val activeProjectIds = state.projects.filterNot(ProjectEntity::isPaused).map(ProjectEntity::id).toSet()
     val dueTasks = state.tasks.filter { it.projectId in activeProjectIds && it.isDueOn(today) }
     val reviewDone = state.reviewLogs.filter { it.reviewedOn == today.toString() }.map { it.taskId }.toSet()
-    val newLearningDone = state.tasks.filter { it.hasLearned && it.updatedAt.toLocalDate() == today && it.nextReviewDate == today.plusDays(1).toString() }.map { it.id }.toSet()
+    val newLearningDone = state.tasks.filter { InitialLearningTracker.isCompletedOn(it.initialLearningDate, today) }.map { it.id }.toSet()
     val taskActionsToday = state.tasks.filter { task ->
         task.projectId in activeProjectIds &&
             (task.isDueOn(today) || task.id in reviewDone || task.id in newLearningDone)
@@ -392,14 +395,18 @@ private fun TodayScreen(
         plan.currentPage < plan.totalPages || state.pageLogs.any { it.planId == plan.id && it.localDate == today.toString() }
     }.associateWith { plan -> state.pageLogs.filter { it.planId == plan.id && it.localDate == today.toString() }.sumOf(PageLogEntity::pagesRead) }
     val dueTodos = state.todos.filter { it.isDueOn(today) }
-    val actions = buildList {
-        taskActionsToday.filter { it.isRequired }.forEach { add(it.id to (it.id in reviewDone || it.id in newLearningDone)) }
-        readingDone.keys.forEach { plan ->
-            add(plan.id to (readingDone.getValue(plan) >= state.readingTargets.targetFor(plan.id, today, plan.dailyTarget)))
-        }
-        dueTodos.filter { it.isRequired }.forEach { add(it.id to it.isCompletedOn(today)) }
-    }
-    val progress = DailyProgressCalculator().calculate(actions.map { DailyAction(isRequired = true, isCompleted = it.second) })
+    val progress = DailyProgressCalculator().calculate(
+        input = DailyProgressMapper.from(
+            projects = state.projects + state.archivedProjects,
+            tasks = state.tasks,
+            reviewLogs = state.reviewLogs,
+            readingPlans = state.readingPlans,
+            readingTargets = state.readingTargets,
+            pageLogs = state.pageLogs,
+            todos = state.todos,
+        ),
+        date = today,
+    )
     val completed = progress.completedRequired
     val total = progress.totalRequired
     val percent = progress.percent
@@ -468,7 +475,9 @@ private fun TodayScreen(
         item { SectionTitle("今日待办") }
         val todoItems = dueTodos.take(5)
         if (todoItems.isEmpty()) item { EmptyCard("今天没有到期待办") }
-        items(todoItems, key = { it.id }) { todo -> TodoCard(todo, today, onComplete = { viewModel.completeTodo(todo.id) }) }
+        items(todoItems, key = { it.id }) { todo ->
+            TodoCard(todo, today, onToggle = { viewModel.toggleTodo(todo.id, today, todo.isCompletedOn(today)) })
+        }
     }
 }
 
@@ -598,7 +607,12 @@ private fun ProjectCard(
 }
 
 @Composable
-private fun TodoScreen(state: LearnListUiState, padding: PaddingValues, today: LocalDate, onComplete: (String) -> Unit) {
+private fun TodoScreen(
+    state: LearnListUiState,
+    padding: PaddingValues,
+    today: LocalDate,
+    onToggle: (String, LocalDate, Boolean) -> Unit,
+) {
     var query by rememberSaveable { mutableStateOf("") }
     val todos = state.todos.filter { it.isDueOn(today) && (query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) || it.notes.contains(query.trim(), ignoreCase = true)) }
     LazyColumn(
@@ -610,7 +624,9 @@ private fun TodoScreen(state: LearnListUiState, padding: PaddingValues, today: L
             OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text("搜索待办") }, singleLine = true)
         }
         if (todos.isEmpty()) item { EmptyCard("没有到期待办，点击右下角添加") }
-        items(todos, key = { it.id }) { todo -> TodoCard(todo, today, onComplete = { onComplete(todo.id) }) }
+        items(todos, key = { it.id }) { todo ->
+            TodoCard(todo, today, onToggle = { onToggle(todo.id, today, todo.isCompletedOn(today)) })
+        }
         item {
             SectionTitle("重复规则")
             Text("支持一次性、每天、每周、工作日和自定义星期；完成记录按日期保存。", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -911,7 +927,7 @@ private fun ReadingPlanCard(
 }
 
 @Composable
-private fun TodoCard(todo: TodoEntity, today: LocalDate, onComplete: () -> Unit) {
+private fun TodoCard(todo: TodoEntity, today: LocalDate, onToggle: () -> Unit) {
     val completed = todo.isCompletedOn(today)
     Card {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -925,8 +941,9 @@ private fun TodoCard(todo: TodoEntity, today: LocalDate, onComplete: () -> Unit)
                     fontSize = 12.sp,
                 )
             }
-            if (!completed) IconButton(onClick = onComplete) { Icon(Icons.Default.Check, "完成") }
-            else Text("已完成", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+            IconButton(onClick = onToggle) {
+                Icon(if (completed) Icons.AutoMirrored.Filled.Undo else Icons.Default.Check, if (completed) "撤销完成" else "完成")
+            }
         }
     }
 }
@@ -1042,7 +1059,7 @@ private fun TodoEntity.isDueOn(date: LocalDate): Boolean {
     return TodoRecurrence.isDue(rule, base, date, customDays = custom, completedDates = completed)
 }
 
-private fun TodoEntity.isCompletedOn(date: LocalDate): Boolean = completedDates.split(',').any { it == date.toString() }
+private fun TodoEntity.isCompletedOn(date: LocalDate): Boolean = TodoCompletion.isCompleted(completedDates, date)
 
 private fun repeatLabel(rule: String): String = when (rule) {
     "DAILY" -> "每天"
@@ -1053,48 +1070,31 @@ private fun repeatLabel(rule: String): String = when (rule) {
 }
 
 private fun calculateStreak(state: LearnListUiState, today: LocalDate, restDays: Set<DayOfWeek> = emptySet()): Int {
+    val input = DailyProgressMapper.from(
+        projects = state.projects + state.archivedProjects,
+        tasks = state.tasks,
+        reviewLogs = state.reviewLogs,
+        readingPlans = state.readingPlans,
+        readingTargets = state.readingTargets,
+        pageLogs = state.pageLogs,
+        todos = state.todos,
+    )
+    val calculator = DailyProgressCalculator()
     var streak = 0
     var date = today
     var inspectedDays = 0
-    val activeProjectIds = state.projects.filterNot(ProjectEntity::isPaused).map(ProjectEntity::id).toSet()
     while (streak < 365 && inspectedDays < 365 * 7) {
         inspectedDays += 1
         if (date.dayOfWeek in restDays) {
             date = date.minusDays(1)
             continue
         }
-        val token = date.toString()
-        val requiredTasks = state.tasks.filter {
-            it.isRequired && it.projectId in activeProjectIds && it.createdAt.toLocalDate() <= date
-        }
-        val reviewedTaskIds = state.reviewLogs.filter { it.reviewedOn == token && it.taskId in requiredTasks.map(LearningTaskEntity::id).toSet() }
-            .map(ReviewLogEntity::taskId).toSet()
-        val review = reviewedTaskIds.isNotEmpty()
-        val initialLearningTaskIds = requiredTasks.filter {
-            it.hasLearned && it.updatedAt.toLocalDate() == date && it.nextReviewDate == date.plusDays(1).toString()
-        }.map(LearningTaskEntity::id).toSet()
-        val reading = state.readingPlans.any { plan ->
-            val pages = state.pageLogs.filter { it.planId == plan.id && it.localDate == token }.sumOf(PageLogEntity::pagesRead)
-            val startsOnOrBeforeDate = runCatching { LocalDate.parse(plan.startDate) <= date }.getOrDefault(true)
-            !plan.isPaused && plan.projectId in activeProjectIds && startsOnOrBeforeDate &&
-                (plan.currentPage < plan.totalPages || pages > 0) &&
-                pages >= state.readingTargets.targetFor(plan.id, date, plan.dailyTarget)
-        }
-        val todoItems = state.todos.filter { it.isRequired && it.isDueOn(date) }
-        val todo = todoItems.any { it.isCompletedOn(date) }
-        val requiredTaskExists = requiredTasks.any { it.isDueOn(date) || it.id in reviewedTaskIds || it.id in initialLearningTaskIds }
-        val requiredActionExists = requiredTaskExists ||
-            state.readingPlans.any { plan ->
-                val startsOnOrBeforeDate = runCatching { LocalDate.parse(plan.startDate) <= date }.getOrDefault(true)
-                !plan.isPaused && plan.projectId in activeProjectIds && startsOnOrBeforeDate &&
-                    (plan.currentPage < plan.totalPages || state.pageLogs.any { it.planId == plan.id && it.localDate == token })
-            } || todoItems.isNotEmpty()
-        val initialLearning = initialLearningTaskIds.isNotEmpty()
-        if (!requiredActionExists) {
+        val summary = calculator.calculate(input, date)
+        if (summary.totalRequired == 0) {
             date = date.minusDays(1)
             continue
         }
-        if (!review && !initialLearning && !reading && !todo) break
+        if (summary.completedRequired == 0) break
         streak += 1
         date = date.minusDays(1)
     }
@@ -1465,3 +1465,4 @@ private fun FormDialog(title: String, onDismiss: () -> Unit, confirmLabel: Strin
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
+

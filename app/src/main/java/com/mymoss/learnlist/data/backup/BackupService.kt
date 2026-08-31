@@ -230,6 +230,7 @@ class BackupService(
         snapshot.tasks.forEach { task ->
             if (task.projectId !in projectIds) invalid("学习任务引用不存在的项目")
             if (task.stage !in 0..7) invalid("学习任务复习阶段无效")
+            task.initialLearningDate?.let { validateDate(it, "initialLearningDate") }
             task.nextReviewDate?.let { validateDate(it, "nextReviewDate") }
             task.snoozedUntil?.let { validateDate(it, "snoozedUntil") }
         }
@@ -318,6 +319,7 @@ class BackupService(
         put("id", item.id); put("projectId", item.projectId); put("title", item.title)
         put("prompt", item.prompt); put("notes", item.notes); put("source", item.source)
         put("isRequired", item.isRequired); put("isArchived", item.isArchived); put("hasLearned", item.hasLearned)
+        putNullable("initialLearningDate", item.initialLearningDate)
         put("stage", item.stage); putNullable("nextReviewDate", item.nextReviewDate); putNullable("snoozedUntil", item.snoozedUntil)
         put("createdAt", item.createdAt); put("updatedAt", item.updatedAt)
     }
@@ -392,7 +394,7 @@ class BackupService(
     private fun parseTask(o: JSONObject) = LearningTaskEntity(
         id = o.requiredString("id"), projectId = o.requiredString("projectId"), title = o.requiredString("title"),
         prompt = o.optString("prompt", ""), notes = o.optString("notes", ""), source = o.optString("source", ""), isRequired = o.optBoolean("isRequired", true),
-        isArchived = o.optBoolean("isArchived", false), hasLearned = o.optBoolean("hasLearned", false), stage = o.optInt("stage", 0),
+        isArchived = o.optBoolean("isArchived", false), hasLearned = o.optBoolean("hasLearned", false), initialLearningDate = o.nullableString("initialLearningDate"), stage = o.optInt("stage", 0),
         nextReviewDate = o.nullableString("nextReviewDate"), snoozedUntil = o.nullableString("snoozedUntil"), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"),
     )
 
@@ -488,3 +490,4 @@ class BackupService(
         const val MIN_PASSWORD_LENGTH = 8
     }
 }
+
