@@ -4,12 +4,7 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: '已有的 vX.Y.Z Git 标签；手动发布前请先推送标签'
-        required: true
-        type: string
+  workflow_dispatch: {}
 
 jobs:
   release:
@@ -21,12 +16,12 @@ jobs:
       RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
       RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
       RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/learn-list-release.jks
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          ref: ${{ github.ref_name }}
 
       - name: Validate release tag
         run: |
