@@ -50,7 +50,7 @@ Debug APK 输出在：`app/build/outputs/apk/debug/app-debug.apk`。
 
 ## GitHub Release 更新
 
-稳定版使用 `vX.Y.Z` 标签触发 `.github/workflows/release-android.yml`。Release 必须包含：
+稳定版使用 `vX.Y.Z` 标签触发 `.github/workflows/release.yml`。Release 必须包含：
 
 1. 已用用户自己的 Release keystore 签名的 `learn-list-vX.Y.Z.apk`；
 2. 同名 `.sha256` 文件，内容为 APK 的 SHA-256 摘要。
