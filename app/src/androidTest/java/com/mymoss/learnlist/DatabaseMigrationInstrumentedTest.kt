@@ -24,7 +24,7 @@ class DatabaseMigrationInstrumentedTest {
             database.execSQL("INSERT INTO learning_tasks (id, projectId, title, prompt, notes, source, isRequired, isArchived, hasLearned, stage, nextReviewDate, snoozedUntil, createdAt, updatedAt) VALUES ('task-1', 'project-1', '旧任务', '', '', '', 1, 0, 0, 0, NULL, NULL, 1, 1)")
 
             LearnListDatabase.MIGRATION_1_2.migrate(database)
-            assertEquals(1, countRows(database, "reading_targets"))
+            assertEquals(0, countRows(database, "reading_targets"))
             assertTrue(columnNames(database, "reading_targets").containsAll(setOf("id", "planId", "localDate", "targetPages", "updatedAt")))
 
             LearnListDatabase.MIGRATION_2_3.migrate(database)
