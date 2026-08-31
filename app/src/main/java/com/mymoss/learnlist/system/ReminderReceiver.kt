@@ -101,7 +101,7 @@ class ReminderReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, title.hashCode())
-        val taskId = if (kind == "COUNTDOWN") {
+        val taskId = if (kind != "PROJECT") {
             null
         } else {
             intent.getStringExtra(EXTRA_TASK_ID)
