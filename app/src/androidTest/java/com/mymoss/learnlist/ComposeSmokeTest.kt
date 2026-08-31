@@ -25,6 +25,8 @@ class ComposeSmokeTest {
         composeRule.onNodeWithText("设置").performClick()
         composeRule.onNodeWithText("更新中心").assertIsDisplayed()
         composeRule.onNodeWithText("检查更新").assertIsDisplayed()
+        composeRule.onNodeWithText("通知权限").assertIsDisplayed()
+        composeRule.onNodeWithText("精确提醒权限").assertIsDisplayed()
     }
 }
 
