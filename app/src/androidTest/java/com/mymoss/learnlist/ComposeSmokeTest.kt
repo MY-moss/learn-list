@@ -15,7 +15,8 @@ class ComposeSmokeTest {
 
     @Test
     fun todayTabIsVisible() {
-        composeRule.onNodeWithText("今日必做进度").assertIsDisplayed()
+        composeRule.onNodeWithText("今日必做").assertIsDisplayed()
         composeRule.onNodeWithText("设置").assertIsDisplayed()
     }
 }
+
