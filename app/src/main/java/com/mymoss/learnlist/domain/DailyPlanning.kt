@@ -11,16 +11,21 @@ object TodoRecurrence {
         baseDate: LocalDate?,
         date: LocalDate,
         customDays: Set<DayOfWeek> = emptySet(),
+        completedDates: Set<LocalDate> = emptySet(),
     ): Boolean {
         if (baseDate != null && date.isBefore(baseDate)) return false
         return when (rule) {
-            TodoRepeatRule.ONCE -> baseDate != null && date == baseDate
-            TodoRepeatRule.DAILY -> true
-            TodoRepeatRule.WEEKLY -> baseDate == null || date.dayOfWeek == baseDate.dayOfWeek
-            TodoRepeatRule.WORKDAYS -> date.dayOfWeek in DayOfWeek.MONDAY..DayOfWeek.FRIDAY
-            TodoRepeatRule.CUSTOM -> date.dayOfWeek in customDays
-        }
-    }
+            TodoRepeatRule.ONCE -> {
+                val completedOnOrBeforeDate = completedDates.any { !it.isAfter(date) }
+                baseDate != null && !date.isBefore(baseDate) &&
+                    (!completedOnOrBeforeDate || date in completedDates)
+            }
+           TodoRepeatRule.DAILY -> true
+           TodoRepeatRule.WEEKLY -> baseDate == null || date.dayOfWeek == baseDate.dayOfWeek
+           TodoRepeatRule.WORKDAYS -> date.dayOfWeek in DayOfWeek.MONDAY..DayOfWeek.FRIDAY
+           TodoRepeatRule.CUSTOM -> date.dayOfWeek in customDays
+       }
+   }
 
     fun isCompleted(completedDates: String, date: LocalDate): Boolean =
         completedDates.split(',').any { it == date.toString() }
