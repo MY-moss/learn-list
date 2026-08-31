@@ -8,6 +8,10 @@
 
 Debug APK 只适合自用测试。正式覆盖升级必须使用同一把 Release keystore 签名的 APK；未签名 Release 不能直接安装。
 
+## 从 GitHub 获取主线测试包
+
+每次 `main` 分支的 Android CI 成功后，工作流会保留 14 天的 Debug APK 和 SHA-256 文件。打开仓库的 [Actions](https://github.com/MY-moss/learn-list/actions)，进入最新的 `Android CI` 成功运行，在页面底部下载 `learn-list-debug-apk-...`。它只用于测试，不等同于正式 Release，也不能覆盖安装正式签名版本。
+
 ## 首次设置建议
 
 - 先创建一个学习项目，再加入学习任务或阅读计划。
