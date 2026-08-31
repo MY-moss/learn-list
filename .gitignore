@@ -1,0 +1,20 @@
+.gradle/
+build/
+*/build/
+.idea/
+*.iml
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+keystore.properties
+*.jks
+*.keystore
+*.apk
+*.aab
+*.hprof
+
+# Local machine/tooling output
+.kotlin/
+out/
+
