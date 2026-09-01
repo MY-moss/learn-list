@@ -41,6 +41,7 @@ internal fun DateInputField(
     label: String,
     modifier: Modifier = Modifier,
     allowClear: Boolean = false,
+    today: LocalDate = LocalDate.now(),
 ) {
     var showPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -72,7 +73,7 @@ internal fun DateInputField(
     if (showPicker) {
         NativeDatePickerHost(
             context = context,
-            initialDate = latestValue.toLocalDateOrNull() ?: LocalDate.now(),
+            initialDate = latestValue.toLocalDateOrNull() ?: today,
             onDateSelected = { selected -> latestOnValueChange(selected.toString()); showPicker = false },
             onDismiss = { showPicker = false },
         )
