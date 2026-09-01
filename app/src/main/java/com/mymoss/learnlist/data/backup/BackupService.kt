@@ -470,6 +470,7 @@ class BackupService(
         put("quietStartMinutes", item.quietStartMinutes)
         put("quietEndMinutes", item.quietEndMinutes)
         put("restDaysCsv", item.restDaysCsv)
+        putNullable("dismissedUpdateVersionName", item.dismissedUpdateVersionName)
         put("soundEnabled", item.soundEnabled)
         put("vibrationEnabled", item.vibrationEnabled)
         put("focusFeedbackMode", item.focusFeedbackMode)
@@ -574,6 +575,7 @@ class BackupService(
             quietStartMinutes = o.optInt("quietStartMinutes", 22 * 60).coerceIn(0, 1439),
             quietEndMinutes = o.optInt("quietEndMinutes", 7 * 60).coerceIn(0, 1439),
             restDaysCsv = restDays,
+            dismissedUpdateVersionName = o.nullableString("dismissedUpdateVersionName"),
             soundEnabled = o.optBoolean("soundEnabled", true),
             vibrationEnabled = o.optBoolean("vibrationEnabled", true),
             focusFeedbackMode = o.optString("focusFeedbackMode", "GLOBAL"),
