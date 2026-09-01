@@ -20,6 +20,7 @@ import com.mymoss.learnlist.data.SettingsRepository
 import com.mymoss.learnlist.domain.RecallRating
 import com.mymoss.learnlist.domain.DailyProgressCalculator
 import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -74,6 +75,8 @@ class ReminderReceiver : BroadcastReceiver() {
                 ensureNotificationChannel(context)
                 val snapshot = application.repository.snapshot()
                 val settings = SettingsRepository(context.applicationContext).settings.first()
+                val zoneId = ZoneId.systemDefault()
+                val today = LocalDate.now(zoneId)
                 val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID)
                 val reminder = snapshot.reminders.firstOrNull { it.id == reminderId }
                 val project = intent.getStringExtra(EXTRA_PROJECT_ID)?.let { projectId ->
@@ -86,7 +89,7 @@ class ReminderReceiver : BroadcastReceiver() {
                             snapshot.projects.any { item ->
                                 item.id == task.projectId && !item.isArchived && !item.isPaused && item.deletedAt == null
                             } &&
-                            isTaskDue(task, LocalDate.now())
+                            isTaskDue(task, today)
                     }
                 } else {
                     null
@@ -111,7 +114,7 @@ class ReminderReceiver : BroadcastReceiver() {
                         if (kind == "COUNTDOWN") FeedbackManager.FeedbackContext.COUNTDOWN else FeedbackManager.FeedbackContext.REMINDER,
                     )
                     if (BuildPermission.canPost(context)) {
-                        postNotification(context, intent, kind, snapshot, dueTask?.id)
+                        postNotification(context, intent, kind, snapshot, dueTask?.id, today, zoneId)
                     }
                 }
                 reminder?.takeIf { it.enabled && (it.kind != "PROJECT" || (project != null && !project.isArchived && !project.isPaused && project.deletedAt == null)) }?.let {
@@ -128,6 +131,8 @@ class ReminderReceiver : BroadcastReceiver() {
         kind: String,
         snapshot: BackupSnapshot,
         resolvedTaskId: String? = null,
+        today: LocalDate,
+        zoneId: ZoneId,
     ) {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -136,7 +141,7 @@ class ReminderReceiver : BroadcastReceiver() {
         val text = if (kind == "COUNTDOWN") {
             "$title 即将到达"
         } else {
-            val progress = calculateProgress(snapshot, intent.getStringExtra(EXTRA_PROJECT_ID))
+            val progress = calculateProgress(snapshot, intent.getStringExtra(EXTRA_PROJECT_ID), today, zoneId)
             if (progress.total == 0) "今天还没有必做行动" else "今天已完成 ${progress.completed}/${progress.total} 项（${progress.percent}%）"
         }
         val openIntent = PendingIntent.getActivity(
@@ -162,7 +167,7 @@ class ReminderReceiver : BroadcastReceiver() {
                         snapshot.projects.any { project ->
                             project.id == task.projectId && !project.isArchived && !project.isPaused && project.deletedAt == null
                         } &&
-                        isTaskDue(task, LocalDate.now())
+                        isTaskDue(task, today)
                 }?.id
         }
         if (taskId != null) {
@@ -181,10 +186,10 @@ class ReminderReceiver : BroadcastReceiver() {
         val percent: Int get() = if (total == 0) 0 else completed * 100 / total
     }
 
-    private fun calculateProgress(snapshot: BackupSnapshot, projectId: String?): Progress {
+    private fun calculateProgress(snapshot: BackupSnapshot, projectId: String?, today: LocalDate, zoneId: ZoneId): Progress {
         val summary = DailyProgressCalculator().calculate(
-            input = DailyProgressMapper.from(snapshot),
-            date = LocalDate.now(),
+            input = DailyProgressMapper.from(snapshot, zoneId),
+            date = today,
             projectId = projectId,
         )
         return Progress(completed = summary.completedRequired, total = summary.totalRequired)
