@@ -216,6 +216,11 @@ class LearnListViewModel(
         say(if (enabled) "提醒已启用" else "提醒已停用")
     }
 
+    fun deleteReminder(id: String) = action {
+        repository.deleteReminder(id)
+        say("提醒已删除")
+    }
+
     fun setRestDays(days: Set<DayOfWeek>) = action {
         settingsRepository?.update { settings ->
             settings.copy(restDaysCsv = days.map(DayOfWeek::getValue).sorted().joinToString(","))

@@ -425,6 +425,10 @@ class LearnListRepository(
         }
     }
 
+    suspend fun deleteReminder(reminderId: String) {
+        dao.deleteReminder(reminderId)
+    }
+
     suspend fun snapshot(): BackupSnapshot = BackupSnapshot(
         projects = dao.getAllProjects(), tasks = dao.getAllTasks(),
         reviewLogs = dao.getAllReviewLogs(), readingPlans = dao.getAllReadingPlans(),
