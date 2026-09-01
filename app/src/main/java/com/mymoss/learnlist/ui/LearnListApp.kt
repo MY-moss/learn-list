@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -102,6 +104,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -109,6 +112,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -148,6 +153,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 enum class AppTab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
@@ -159,6 +165,15 @@ enum class AppTab(val label: String, val icon: androidx.compose.ui.graphics.vect
     SETTINGS("设置", Icons.Default.Settings),
 }
 
+enum class UpdatePhase {
+    IDLE,
+    CHECKING,
+    CONNECTING,
+    DOWNLOADING,
+    VERIFYING,
+    INSTALLING,
+}
+
 data class UpdateUiState(
     val isChecking: Boolean = false,
     val isDownloading: Boolean = false,
@@ -166,6 +181,10 @@ data class UpdateUiState(
     val statusMessage: String? = null,
     val errorMessage: String? = null,
     val lastCheckedAtEpochMillis: Long? = null,
+    val phase: UpdatePhase = UpdatePhase.IDLE,
+    val downloadProgress: Float? = null,
+    val downloadedBytes: Long = 0L,
+    val totalDownloadBytes: Long? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -180,6 +199,8 @@ fun LearnListApp(
     onDismissUpdate: () -> Unit = {},
     onRequestNotifications: () -> Unit = {},
     onRequestExactAlarms: () -> Unit = {},
+    onboardingCompleted: Boolean? = null,
+    onCompleteOnboarding: () -> Unit = {},
     pendingImport: PendingBackupImport? = null,
     onConfirmImport: (BackupImportMode) -> Unit = {},
     onCancelImport: () -> Unit = {},
@@ -200,8 +221,13 @@ fun LearnListApp(
     var showPagesDialog by remember { mutableStateOf<ReadingPlanEntity?>(null) }
     var showBackupDialog by rememberSaveable { mutableStateOf(false) }
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
+    var showOnboarding by rememberSaveable { mutableStateOf(false) }
     val snackbars = remember { SnackbarHostState() }
     var currentDay by remember { mutableStateOf(LocalDate.now()) }
+
+    LaunchedEffect(onboardingCompleted) {
+        if (onboardingCompleted == false) showOnboarding = true
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -242,7 +268,12 @@ fun LearnListApp(
                             AssistChip(
                                 onClick = onDownloadUpdate,
                                 enabled = !updateState.isDownloading,
-                                label = { Text(if (updateState.isDownloading) "下载中" else "有更新") },
+                                label = {
+                                    Text(
+                                        if (!updateState.isDownloading) "有更新"
+                                        else updateState.downloadProgress?.let { "${(it * 100).roundToInt()}%" } ?: "更新中",
+                                    )
+                                },
                                 leadingIcon = { Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp)) },
                             )
                         }
@@ -355,6 +386,7 @@ fun LearnListApp(
                     onDismissUpdate = onDismissUpdate,
                     onRequestNotifications = onRequestNotifications,
                     onRequestExactAlarms = onRequestExactAlarms,
+                    onReplayOnboarding = { showOnboarding = true },
                     onNewReminder = viewModel::addReminder,
                     onSetReminderEnabled = viewModel::setReminderEnabled,
                     onDeleteReminder = viewModel::deleteReminder,
@@ -397,6 +429,210 @@ fun LearnListApp(
         ImportDialog({ showImportDialog = false }) { password, mode -> onImportBackup(password, mode); showImportDialog = false }
     }
     pendingImport?.let { request -> ImportPreviewDialog(request, onCancelImport, onConfirmImport) }
+    if (showOnboarding) {
+        OnboardingDialog(
+            onComplete = {
+                showOnboarding = false
+                onCompleteOnboarding()
+            },
+        )
+    }
+}
+
+private enum class OnboardingAccent {
+    TOMATO,
+    TEAL,
+    AMBER,
+}
+
+private data class OnboardingStep(
+    val eyebrow: String,
+    val title: String,
+    val description: String,
+    val icon: ImageVector,
+    val accent: OnboardingAccent,
+    val tips: List<String>,
+)
+
+private val onboardingSteps = listOf(
+    OnboardingStep(
+        eyebrow = "01 / 开始",
+        title = "把每天的学习变成一张清单",
+        description = "Learn List 会把复习、阅读、待办和专注放进同一个今日节奏里。",
+        icon = Icons.Default.AutoAwesome,
+        accent = OnboardingAccent.TOMATO,
+        tips = listOf("先创建一个学习项目，不需要一次规划完。", "今日页会告诉你今天必须完成什么。"),
+    ),
+    OnboardingStep(
+        eyebrow = "02 / 今日",
+        title = "先看今日，再开始行动",
+        description = "今日页是你的驾驶舱，完成一个必做行动，进度就会向前走。",
+        icon = Icons.Default.Home,
+        accent = OnboardingAccent.TEAL,
+        tips = listOf("学习页：创建项目、学习任务和阅读计划。", "待办页：安排一次性或重复任务。"),
+    ),
+    OnboardingStep(
+        eyebrow = "03 / 记忆",
+        title = "让复习按遗忘曲线回来",
+        description = "完成首次学习后，系统会在明天开始按 1 / 2 / 4 / 7 / 15 / 30 / 60 / 90 天安排复习。",
+        icon = Icons.AutoMirrored.Filled.MenuBook,
+        accent = OnboardingAccent.AMBER,
+        tips = listOf("记得、模糊、忘记会改变下一次间隔。", "需要时点击“查看资料”，平时先凭记忆回答。"),
+    ),
+    OnboardingStep(
+        eyebrow = "04 / 专注",
+        title = "用专注和提醒守住节奏",
+        description = "专注页用番茄钟陪你完成一段学习；设置页可以安排固定提醒、目标和数据备份。",
+        icon = Icons.Default.Timer,
+        accent = OnboardingAccent.TOMATO,
+        tips = listOf("离开应用后，番茄钟和提醒会继续工作。", "通知权限可以稍后在设置里开启。"),
+    ),
+)
+
+@Composable
+private fun OnboardingDialog(onComplete: () -> Unit) {
+    var pageIndex by rememberSaveable { mutableStateOf(0) }
+    val step = onboardingSteps[pageIndex]
+    val scheme = MaterialTheme.colorScheme
+    val accent = when (step.accent) {
+        OnboardingAccent.TOMATO -> scheme.primary
+        OnboardingAccent.TEAL -> scheme.secondary
+        OnboardingAccent.AMBER -> scheme.tertiary
+    }
+
+    Dialog(
+        onDismissRequest = onComplete,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(scheme.background, scheme.surface)))
+                .padding(12.dp)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(30.dp),
+                color = scheme.surface,
+                tonalElevation = 2.dp,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 24.dp, vertical = 20.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "LEARN / LIST",
+                            color = scheme.primary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onComplete) { Text("跳过") }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(190.dp)
+                                .clip(RoundedCornerShape(26.dp))
+                                .background(Brush.linearGradient(listOf(accent.copy(alpha = 0.18f), scheme.primaryContainer))),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = 34.dp, y = (-38).dp)
+                                    .size(150.dp)
+                                    .clip(CircleShape)
+                                    .background(accent.copy(alpha = 0.12f)),
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(22.dp),
+                                verticalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(step.eyebrow, color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.weight(1f))
+                                    Surface(shape = RoundedCornerShape(50), color = scheme.surface.copy(alpha = 0.78f)) {
+                                        Text("1 分钟", color = scheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(68.dp)
+                                        .clip(RoundedCornerShape(22.dp))
+                                        .background(accent),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(step.icon, contentDescription = null, tint = scheme.onPrimary, modifier = Modifier.size(34.dp))
+                                }
+                                Text("每天一点，长期很远", color = scheme.onSurface, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(step.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text(step.description, color = scheme.onSurfaceVariant, fontSize = 14.sp, lineHeight = 21.sp)
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                            step.tips.forEachIndexed { index, tip ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(accent.copy(alpha = 0.13f)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text("${index + 1}", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(tip, color = scheme.onSurface, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.weight(1f)) {
+                            onboardingSteps.forEachIndexed { index, _ ->
+                                Box(
+                                    modifier = Modifier
+                                        .width(if (index == pageIndex) 24.dp else 7.dp)
+                                        .height(7.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (index == pageIndex) accent else scheme.outlineVariant),
+                                )
+                            }
+                        }
+                        Text("${pageIndex + 1}/${onboardingSteps.size}", color = scheme.onSurfaceVariant, fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (pageIndex > 0) {
+                            OutlinedButton(onClick = { pageIndex -= 1 }, modifier = Modifier.weight(1f)) { Text("上一步") }
+                        }
+                        Button(
+                            onClick = { if (pageIndex == onboardingSteps.lastIndex) onComplete() else pageIndex += 1 },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(if (pageIndex == onboardingSteps.lastIndex) "开始使用" else "下一步")
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -885,6 +1121,7 @@ private fun SettingsScreen(
     onDismissUpdate: () -> Unit,
     onRequestNotifications: () -> Unit,
     onRequestExactAlarms: () -> Unit,
+    onReplayOnboarding: () -> Unit,
     onNewReminder: (String?, String, String, String, String, String) -> Unit,
     onSetReminderEnabled: (String, Boolean) -> Unit,
     onDeleteReminder: (String) -> Unit,
@@ -909,6 +1146,25 @@ private fun SettingsScreen(
                         Text("离线优先 · 本机保存 · 无账号", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                     }
                     Text("v${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        }
+        item { SectionHeader("第一次使用", "随时回看操作路线") }
+        item {
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("不确定从哪里开始？", fontWeight = FontWeight.Bold)
+                        Text("用一分钟重新熟悉今日、学习、专注和提醒。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    }
+                    TextButton(onClick = onReplayOnboarding) {
+                        Text("重新查看使用引导")
+                        Icon(Icons.Default.ChevronRight, null, modifier = Modifier.size(17.dp))
+                    }
                 }
             }
         }
@@ -998,13 +1254,12 @@ private fun SettingsScreen(
     if (reminderToDelete != null) {
         AlertDialog(
             onDismissRequest = { reminderToDeleteId = null },
+            shape = MaterialTheme.shapes.large,
+            containerColor = MaterialTheme.colorScheme.surface,
             title = { Text("删除这条提醒？") },
-            text = { Text("${reminderToDelete.timeMinutes / 60}:${(reminderToDelete.timeMinutes % 60).toString().padStart(2, '0')} 的提醒将不再触发。") },
+            text = { Text("${reminderToDelete.timeMinutes / 60}:${(reminderToDelete.timeMinutes % 60).toString().padStart(2, '0')} · 删除后不会再自动触发。") },
             confirmButton = {
-                TextButton(onClick = {
-                    onDeleteReminder(reminderToDelete.id)
-                    reminderToDeleteId = null
-                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                Button(onClick = { onDeleteReminder(reminderToDelete.id); reminderToDeleteId = null }) { Text("删除") }
             },
             dismissButton = { TextButton(onClick = { reminderToDeleteId = null }) { Text("取消") } },
         )
@@ -1012,9 +1267,17 @@ private fun SettingsScreen(
 }
 
 @Composable
-private fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, onDownload: () -> Unit, onDismiss: () -> Unit) {
+internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, onDownload: () -> Unit, onDismiss: () -> Unit) {
     val available = updateState.available
-    Surface(shape = MaterialTheme.shapes.medium, color = if (available != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, if (available != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant)) {
+    val phaseLabel = when (updateState.phase) {
+        UpdatePhase.CHECKING -> "正在连接 GitHub Release…"
+        UpdatePhase.CONNECTING -> "正在连接更新服务器…"
+        UpdatePhase.DOWNLOADING -> "正在下载更新包…"
+        UpdatePhase.VERIFYING -> "正在校验 SHA-256…"
+        UpdatePhase.INSTALLING -> "正在准备系统安装器…"
+        UpdatePhase.IDLE -> updateState.statusMessage ?: "稳定版更新来自 GitHub，数据不会上传"
+    }
+    Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = if (available != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, if (available != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (available == null) Icons.Default.CloudDownload else Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
@@ -1023,9 +1286,8 @@ private fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, on
                     Text(if (available == null) "当前版本 v${BuildConfig.VERSION_NAME}" else "发现新版本 v${available.versionName}", fontWeight = FontWeight.Bold)
                     Text(
                         when {
-                            updateState.isDownloading -> "正在下载并校验安装包…"
-                            updateState.isChecking -> "正在连接 GitHub Release…"
                             updateState.errorMessage != null -> updateState.errorMessage
+                            updateState.isDownloading || updateState.isChecking -> phaseLabel
                             available != null -> "校验通过后交给系统安装器，需要你确认"
                             updateState.statusMessage != null -> updateState.statusMessage
                             else -> "稳定版更新来自 GitHub，数据不会上传"
@@ -1041,6 +1303,7 @@ private fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, on
             if (available != null && available.releaseNotes.isNotBlank()) {
                 Text(available.releaseNotes.trim(), color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
+            UpdateProgressFeedback(updateState)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("上次检查：${formatLastChecked(updateState.lastCheckedAtEpochMillis)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 if (available != null) {
@@ -1051,6 +1314,34 @@ private fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, on
             }
             Text("下载后会验证 SHA-256；不会静默安装，也不会覆盖你的本地数据。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
         }
+    }
+}
+
+@Composable
+internal fun UpdateProgressFeedback(updateState: UpdateUiState) {
+    if (!updateState.isDownloading) return
+    val progress = updateState.downloadProgress?.coerceIn(0f, 1f)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        if (progress == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+        } else {
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+        }
+        Text(
+            buildString {
+                if (progress == null) append("下载进度：正在获取文件大小")
+                else append("下载进度 ${((progress * 100).roundToInt())}%")
+                append(" · 已下载 ")
+                append(formatBytes(updateState.downloadedBytes))
+                updateState.totalDownloadBytes?.let { append(" / "); append(formatBytes(it)) }
+            },
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -1306,6 +1597,16 @@ private fun metricLabel(metric: String): String = when (metric) { "READING_PAGES
 private fun periodLabel(period: String): String = when (period) { "WEEKLY" -> "本周"; "MONTHLY" -> "本月"; "CUSTOM" -> "自定义"; else -> "今天" }
 private fun formatMinutes(value: Int?): String = value?.let { "${it / 60}:${(it % 60).toString().padStart(2, '0')}" } ?: "未设置"
 private fun formatLastChecked(epoch: Long?): String = epoch?.let { Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm", Locale.CHINA)) } ?: "尚未检查"
+private fun formatBytes(bytes: Long): String {
+    val units = arrayOf("B", "KB", "MB", "GB")
+    var value = bytes.toDouble()
+    var index = 0
+    while (value >= 1024.0 && index < units.lastIndex) {
+        value /= 1024.0
+        index += 1
+    }
+    return if (index == 0 || value >= 10.0 || value % 1.0 == 0.0) "${value.toInt()} ${units[index]}" else String.format(Locale.US, "%.1f %s", value, units[index])
+}
 @Composable
 private fun projectAccent(project: ProjectEntity): Color = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.tertiary, Color(0xFF7A6AB8))[project.id.hashCode().absoluteValue % 4]
 

@@ -23,8 +23,10 @@ import com.mymoss.learnlist.data.backup.BackupService
 import com.mymoss.learnlist.system.ReleaseChecker
 import com.mymoss.learnlist.system.FocusTimerScheduler
 import com.mymoss.learnlist.system.ReminderScheduler
+import com.mymoss.learnlist.system.UpdateDownloadStage
 import com.mymoss.learnlist.system.UpdateInstaller
 import com.mymoss.learnlist.ui.LearnListApp
+import com.mymoss.learnlist.ui.UpdatePhase
 import com.mymoss.learnlist.ui.UpdateUiState
 import com.mymoss.learnlist.ui.theme.LearnListTheme
 import java.io.ByteArrayOutputStream
@@ -77,6 +79,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             LearnListTheme {
                 val pending by pendingBackupImport.collectAsState()
+                val appSettings by settingsRepository.settings.collectAsState(initial = null)
                 val viewModel: com.mymoss.learnlist.ui.LearnListViewModel = viewModel(
                     factory = com.mymoss.learnlist.ui.LearnListViewModel.factory(app.repository, settingsRepository, focusTimerScheduler),
                 )
@@ -90,6 +93,12 @@ class MainActivity : ComponentActivity() {
                     onDismissUpdate = { updateState.update { it.copy(available = null) } },
                     onRequestNotifications = ::requestNotificationPermission,
                     onRequestExactAlarms = ::requestExactAlarmPermission,
+                    onboardingCompleted = appSettings?.hasCompletedOnboarding,
+                    onCompleteOnboarding = {
+                        lifecycleScope.launch {
+                            settingsRepository.update { it.copy(hasCompletedOnboarding = true) }
+                        }
+                    },
                     pendingImport = pending,
                     onConfirmImport = ::confirmImport,
                     onCancelImport = { pendingBackupImport.value = null },
@@ -169,7 +178,17 @@ class MainActivity : ComponentActivity() {
 
     private suspend fun performUpdateCheck(manual: Boolean) {
         if (updateState.value.isChecking || updateState.value.isDownloading) return
-        updateState.update { it.copy(isChecking = true, errorMessage = null, statusMessage = if (manual) "正在检查 GitHub Release…" else "自动检查中…") }
+        updateState.update {
+            it.copy(
+                isChecking = true,
+                phase = UpdatePhase.CHECKING,
+                downloadProgress = null,
+                downloadedBytes = 0L,
+                totalDownloadBytes = null,
+                errorMessage = null,
+                statusMessage = if (manual) "正在检查 GitHub Release…" else "自动检查中…",
+            )
+        }
         val checkedAt = System.currentTimeMillis()
         val result = ReleaseChecker().checkLatest()
         result.fold(
@@ -178,6 +197,10 @@ class MainActivity : ComponentActivity() {
                 updateState.update {
                     it.copy(
                         isChecking = false,
+                        phase = UpdatePhase.IDLE,
+                        downloadProgress = null,
+                        downloadedBytes = 0L,
+                        totalDownloadBytes = null,
                         available = info,
                         statusMessage = if (info == null) "当前已是最新版本" else "发现 v${info.versionName}，可以下载更新",
                         errorMessage = null,
@@ -187,7 +210,18 @@ class MainActivity : ComponentActivity() {
                 if (manual) showToast(if (info == null) "当前已是最新版本" else "发现新版本 v${info.versionName}，请在更新中心确认")
             },
             onFailure = { error ->
-                updateState.update { it.copy(isChecking = false, statusMessage = null, errorMessage = error.message ?: "检查更新失败", lastCheckedAtEpochMillis = checkedAt) }
+                updateState.update {
+                    it.copy(
+                        isChecking = false,
+                        phase = UpdatePhase.IDLE,
+                        downloadProgress = null,
+                        downloadedBytes = 0L,
+                        totalDownloadBytes = null,
+                        statusMessage = null,
+                        errorMessage = error.message ?: "检查更新失败",
+                        lastCheckedAtEpochMillis = checkedAt,
+                    )
+                }
                 if (manual) showToast("检查更新失败：${error.message}")
             },
         )
@@ -196,17 +230,70 @@ class MainActivity : ComponentActivity() {
     private fun downloadAvailableUpdate() {
         val info = updateState.value.available ?: return
         lifecycleScope.launch {
-            updateState.update { it.copy(isDownloading = true, errorMessage = null, statusMessage = "正在下载并校验 v${info.versionName}…") }
+            updateState.update {
+                it.copy(
+                    isDownloading = true,
+                    phase = UpdatePhase.CONNECTING,
+                    downloadProgress = null,
+                    downloadedBytes = 0L,
+                    totalDownloadBytes = null,
+                    errorMessage = null,
+                    statusMessage = "正在连接 GitHub Release…",
+                )
+            }
             runCatching {
-                val apk = UpdateInstaller(this@MainActivity).downloadAndVerify(info)
+                val apk = UpdateInstaller(this@MainActivity).downloadAndVerify(info) { progress ->
+                    updateState.update { current ->
+                        val fraction = progress.totalBytes
+                            ?.takeIf { total -> total > 0L }
+                            ?.let { total -> (progress.downloadedBytes.toFloat() / total).coerceIn(0f, 1f) }
+                        current.copy(
+                            phase = when (progress.stage) {
+                                UpdateDownloadStage.CONNECTING -> UpdatePhase.CONNECTING
+                                UpdateDownloadStage.DOWNLOADING -> UpdatePhase.DOWNLOADING
+                                UpdateDownloadStage.VERIFYING -> UpdatePhase.VERIFYING
+                            },
+                            downloadProgress = fraction,
+                            downloadedBytes = progress.downloadedBytes,
+                            totalDownloadBytes = progress.totalBytes,
+                            statusMessage = when (progress.stage) {
+                                UpdateDownloadStage.CONNECTING -> "正在连接 GitHub Release…"
+                                UpdateDownloadStage.DOWNLOADING -> "正在下载 v${info.versionName}…"
+                                UpdateDownloadStage.VERIFYING -> "正在校验 SHA-256…"
+                            },
+                        )
+                    }
+                }
+                updateState.update {
+                    it.copy(
+                        phase = UpdatePhase.INSTALLING,
+                        downloadProgress = 1f,
+                        statusMessage = "安装包已校验，正在打开系统安装器…",
+                    )
+                }
                 withContext(Dispatchers.Main) { UpdateInstaller(this@MainActivity).install(apk) }
             }.fold(
                 onSuccess = { installerOpened ->
-                    updateState.update { it.copy(isDownloading = false, statusMessage = if (installerOpened) "安装确认已打开，请按系统提示完成更新" else "请在系统设置中允许本应用安装未知来源") }
+                    updateState.update {
+                        it.copy(
+                            isDownloading = false,
+                            phase = UpdatePhase.IDLE,
+                            downloadProgress = null,
+                            statusMessage = if (installerOpened) "安装确认已打开，请按系统提示完成更新" else "请在系统设置中允许本应用安装未知来源",
+                        )
+                    }
                     showToast(if (installerOpened) "安装确认已打开" else "请允许安装未知来源后重试")
                 },
                 onFailure = { error ->
-                    updateState.update { it.copy(isDownloading = false, errorMessage = error.message ?: "更新失败", statusMessage = null) }
+                    updateState.update {
+                        it.copy(
+                            isDownloading = false,
+                            phase = UpdatePhase.IDLE,
+                            downloadProgress = null,
+                            errorMessage = error.message ?: "更新失败",
+                            statusMessage = null,
+                        )
+                    }
                     showToast("更新失败：${error.message}")
                 },
             )
