@@ -23,6 +23,18 @@ data class UpdateInfo(
     val releaseNotes: String,
 )
 
+enum class UpdateDownloadStage {
+    CONNECTING,
+    DOWNLOADING,
+    VERIFYING,
+}
+
+data class UpdateDownloadProgress(
+    val stage: UpdateDownloadStage,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long? = null,
+)
+
 class ReleaseChecker {
     suspend fun checkLatest(): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
         runCatching {
@@ -82,12 +94,16 @@ class ReleaseChecker {
 }
 
 class UpdateInstaller(private val context: Context) {
-    suspend fun downloadAndVerify(info: UpdateInfo): File = withContext(Dispatchers.IO) {
+    suspend fun downloadAndVerify(
+        info: UpdateInfo,
+        onProgress: (UpdateDownloadProgress) -> Unit = {},
+    ): File = withContext(Dispatchers.IO) {
         ReleaseChecker.validateUrl(info.downloadUrl)
         require(RELEASE_VERSION_PATTERN.matches(info.versionName)) { "更新版本号无效" }
         val folder = File(context.cacheDir, "updates").apply { mkdirs() }
         val apk = File(folder, "learn-list-${info.versionName}.apk")
-        download(info.downloadUrl, apk)
+        val totalBytes = download(info.downloadUrl, apk, onProgress)
+        onProgress(UpdateDownloadProgress(UpdateDownloadStage.VERIFYING, apk.length(), totalBytes))
         val checksumUrl = requireNotNull(info.sha256Url) { "Release 缺少 SHA-256 摘要，已停止安装" }
         val expected = downloadText(checksumUrl).trim().split(Regex("\\s+")).firstOrNull()
         require(expected?.matches(Regex("[0-9a-fA-F]{64}")) == true) { "Release 摘要格式无效" }
@@ -110,12 +126,19 @@ class UpdateInstaller(private val context: Context) {
         return true
     }
 
-    private fun download(url: String, target: File) {
+    private fun download(
+        url: String,
+        target: File,
+        onProgress: (UpdateDownloadProgress) -> Unit,
+    ): Long? {
+        onProgress(UpdateDownloadProgress(UpdateDownloadStage.CONNECTING))
         val connection = URL(url).openConnection() as HttpURLConnection
         connection.connectTimeout = 10_000; connection.readTimeout = 30_000; connection.instanceFollowRedirects = true
         if (connection.responseCode !in 200..299) error("下载失败：${connection.responseCode}")
         require(isAllowedHost(connection.url.host)) { "重定向地址不安全" }
-        require(connection.contentLengthLong <= MAX_APK_BYTES || connection.contentLengthLong < 0) { "更新包过大" }
+        val totalBytes = connection.contentLengthLong.takeIf { it > 0L }
+        require(totalBytes == null || totalBytes <= MAX_APK_BYTES) { "更新包过大" }
+        onProgress(UpdateDownloadProgress(UpdateDownloadStage.DOWNLOADING, 0L, totalBytes))
         connection.inputStream.use { input ->
             target.outputStream().use { output ->
                 val buffer = ByteArray(16 * 1024)
@@ -126,9 +149,11 @@ class UpdateInstaller(private val context: Context) {
                     total += read
                     require(total <= MAX_APK_BYTES) { "更新包过大" }
                     output.write(buffer, 0, read)
+                    onProgress(UpdateDownloadProgress(UpdateDownloadStage.DOWNLOADING, total, totalBytes))
                 }
             }
         }
+        return totalBytes
     }
 
     private fun downloadText(url: String): String {
@@ -161,3 +186,4 @@ class UpdateInstaller(private val context: Context) {
 }
 
 private val RELEASE_VERSION_PATTERN = Regex("\\d+(?:\\.\\d+){2}")
+
