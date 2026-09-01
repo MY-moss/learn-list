@@ -57,6 +57,8 @@ class LearnListViewModel(
     private val repository: LearnListRepository,
     private val settingsRepository: SettingsRepository? = null,
     private val focusTimerScheduler: FocusTimerScheduler? = null,
+    private val onFocusStarted: (startedAt: Long, endAt: Long, plannedMinutes: Int) -> Unit = { _, _, _ -> },
+    private val onFocusStopped: () -> Unit = {},
     private val onFocusCompleted: (AppSettings) -> Unit = {},
 ) : ViewModel() {
     private val _state = MutableStateFlow(LearnListUiState())
@@ -80,7 +82,24 @@ class LearnListViewModel(
         observe(repository.observeCountdowns()) { copy(countdowns = it) }
         observe(repository.observeReminders()) { copy(reminders = it) }
         settingsRepository?.let { settings ->
-            observe(settings.settings) { copy(restDays = it.restDaysCsv.toDayOfWeekSet()) }
+            observe(settings.settings) { value ->
+                val startedAt = value.focusStartedAtEpochMillis
+                val endAt = value.focusEndAtEpochMillis
+                if (startedAt != null && endAt != null && endAt > System.currentTimeMillis()) {
+                    copy(
+                        restDays = value.restDaysCsv.toDayOfWeekSet(),
+                        focusRunning = true,
+                        focusRemainingSeconds = ((endAt - System.currentTimeMillis()) / 1000L).toInt().coerceAtLeast(0),
+                        focusPlannedMinutes = value.focusPlannedMinutes.coerceIn(1, 180),
+                    )
+                } else {
+                    copy(
+                        restDays = value.restDaysCsv.toDayOfWeekSet(),
+                        focusRunning = false,
+                        focusRemainingSeconds = 0,
+                    )
+                }
+            }
         }
         recoverFocusTimer()
     }
@@ -246,6 +265,7 @@ class LearnListViewModel(
         val actual = ((System.currentTimeMillis() - focusStartedAt) / 60_000L).toInt().coerceAtLeast(0)
         val planned = _state.value.focusPlannedMinutes
         _state.update { it.copy(focusRunning = false, focusRemainingSeconds = 0, message = "专注已保存") }
+        runCatching { onFocusStopped() }
         action {
             repository.recordFocusSessionIfNeeded(planned, actual, startedAt = focusStartedAt)
             clearPersistedFocusTimer()
@@ -302,6 +322,7 @@ class LearnListViewModel(
                     )
                 }
                 focusTimerScheduler?.schedule(end)
+                runCatching { onFocusStarted(started, end, planned) }
                 launchFocusTimer(planned)
             }
         }
@@ -336,6 +357,7 @@ class LearnListViewModel(
                     )
                 }
                 focusTimerScheduler?.schedule(focusEndAt)
+                runCatching { onFocusStarted(focusStartedAt, focusEndAt, plannedMinutes) }
             }
         }
     }
@@ -351,6 +373,7 @@ class LearnListViewModel(
         if (claimed) {
             focusTimerScheduler?.cancel()
             settingsRepository?.settings?.first()?.let(onFocusCompleted)
+            runCatching { onFocusStopped() }
         }
         return claimed
     }
@@ -368,12 +391,21 @@ class LearnListViewModel(
             repository: LearnListRepository,
             settingsRepository: SettingsRepository? = null,
             focusTimerScheduler: FocusTimerScheduler? = null,
+            onFocusStarted: (startedAt: Long, endAt: Long, plannedMinutes: Int) -> Unit = { _, _, _ -> },
+            onFocusStopped: () -> Unit = {},
             onFocusCompleted: (AppSettings) -> Unit = {},
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    LearnListViewModel(repository, settingsRepository, focusTimerScheduler, onFocusCompleted) as T
+                    LearnListViewModel(
+                        repository,
+                        settingsRepository,
+                        focusTimerScheduler,
+                        onFocusStarted,
+                        onFocusStopped,
+                        onFocusCompleted,
+                    ) as T
             }
     }
 }
