@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -38,8 +39,8 @@ class ComposeSmokeTest {
         composeRule.onNodeWithText("设置").performClick()
         composeRule.onNodeWithText("更新中心").assertIsDisplayed()
         composeRule.onNodeWithText("检查更新").assertIsDisplayed()
-        composeRule.onNodeWithText("通知权限").assertIsDisplayed()
-        composeRule.onNodeWithText("精确提醒权限").assertIsDisplayed()
+        composeRule.onNodeWithText("通知权限").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("精确提醒权限").performScrollTo().assertIsDisplayed()
     }
 }
 
