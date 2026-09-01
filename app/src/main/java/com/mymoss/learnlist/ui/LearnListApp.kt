@@ -1277,7 +1277,6 @@ internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, o
         UpdatePhase.INSTALLING -> "正在准备系统安装器…"
         UpdatePhase.IDLE -> updateState.statusMessage ?: "稳定版更新来自 GitHub，数据不会上传"
     }
-    val progress = updateState.downloadProgress?.coerceIn(0f, 1f)
     Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = if (available != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, if (available != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1304,28 +1303,7 @@ internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, o
             if (available != null && available.releaseNotes.isNotBlank()) {
                 Text(available.releaseNotes.trim(), color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
-            if (updateState.isDownloading) {
-                if (progress == null) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
-                } else {
-                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
-                }
-                Text(
-                    buildString {
-                        if (progress == null) append("下载进度：正在获取文件大小")
-                        else append("下载进度 ${((progress * 100).roundToInt())}%")
-                        append(" · 已下载 ")
-                        append(formatBytes(updateState.downloadedBytes))
-                        updateState.totalDownloadBytes?.let { append(" / "); append(formatBytes(it)) }
-                    },
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            UpdateProgressFeedback(updateState)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("上次检查：${formatLastChecked(updateState.lastCheckedAtEpochMillis)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 if (available != null) {
@@ -1336,6 +1314,34 @@ internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, o
             }
             Text("下载后会验证 SHA-256；不会静默安装，也不会覆盖你的本地数据。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
         }
+    }
+}
+
+@Composable
+internal fun UpdateProgressFeedback(updateState: UpdateUiState) {
+    if (!updateState.isDownloading) return
+    val progress = updateState.downloadProgress?.coerceIn(0f, 1f)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        if (progress == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+        } else {
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+        }
+        Text(
+            buildString {
+                if (progress == null) append("下载进度：正在获取文件大小")
+                else append("下载进度 ${((progress * 100).roundToInt())}%")
+                append(" · 已下载 ")
+                append(formatBytes(updateState.downloadedBytes))
+                updateState.totalDownloadBytes?.let { append(" / "); append(formatBytes(it)) }
+            },
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
