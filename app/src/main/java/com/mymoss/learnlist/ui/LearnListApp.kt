@@ -121,6 +121,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1028,6 +1033,16 @@ private fun HistoryCalendarDialog(
                                 val isFuture = date.isAfter(today)
                                 val progress = if (isFuture) null else progressFor(date)
                                 val isSelected = date == selectedDate
+                                val accessibilityDescription = buildString {
+                                    append("${date.year}年${date.monthValue}月${date.dayOfMonth}日")
+                                    append("，")
+                                    when {
+                                        isFuture -> append("未来日期，不可选择")
+                                        progress?.percent != null -> append("完成${progress.percent}%")
+                                        else -> append("无必做行动")
+                                    }
+                                    if (isSelected) append("，已选中")
+                                }
                                 val background = when {
                                     isSelected -> MaterialTheme.colorScheme.primaryContainer
                                     progress?.percent == 100 -> MaterialTheme.colorScheme.secondaryContainer
@@ -1041,7 +1056,12 @@ private fun HistoryCalendarDialog(
                                         .padding(2.dp)
                                         .clip(MaterialTheme.shapes.small)
                                         .background(background)
-                                        .clickable(enabled = !isFuture) { onDateSelected(date) },
+                                        .clickable(enabled = !isFuture) { onDateSelected(date) }
+                                        .semantics(mergeDescendants = true) {
+                                            contentDescription = accessibilityDescription
+                                            role = Role.Button
+                                            if (isSelected) stateDescription = "已选中"
+                                        },
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
