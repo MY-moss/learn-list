@@ -38,6 +38,11 @@ class BackupServiceInstrumentedTest {
         val service = BackupService(sourceRepository, settings)
 
         val encrypted = service.export(encrypted = true, password = "correct-password")
+        val exportedSettings = JSONObject(String(service.export(false), StandardCharsets.UTF_8)).getJSONObject("settings")
+        assertTrue(!exportedSettings.has("summaryReminderEnabled"))
+        assertTrue(!exportedSettings.has("summaryReminderMinutes"))
+        assertTrue(!exportedSettings.has("quietStartMinutes"))
+        assertTrue(!exportedSettings.has("quietEndMinutes"))
         val preview = service.preview(encrypted, "correct-password")
         assertTrue(preview.encrypted)
         assertEquals(1, preview.counts["projects"])
@@ -97,6 +102,40 @@ class BackupServiceInstrumentedTest {
 
         sourceDatabase.close()
         targetDatabase.close()
+    }
+
+    @Test
+    fun legacyGlobalReminderSettingsBecomeOneUnifiedReminder() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = inMemoryDatabase(context)
+        val repository = LearnListRepository(database)
+        val legacyBackup = JSONObject()
+            .put("format", "learn-list-json-v1")
+            .put("schemaVersion", 3)
+            .put("createdAt", 1L)
+            .put(
+                "settings",
+                JSONObject()
+                    .put("summaryReminderEnabled", false)
+                    .put("summaryReminderMinutes", 615)
+                    .put("quietStartMinutes", 1_300)
+                    .put("quietEndMinutes", 390),
+            )
+            .put("reminders", JSONArray())
+            .toString()
+            .toByteArray(StandardCharsets.UTF_8)
+
+        BackupService(repository).import(legacyBackup, mode = BackupImportMode.MERGE)
+
+        val reminder = repository.snapshot().reminders.single()
+        assertEquals("SUMMARY", reminder.kind)
+        assertEquals(null, reminder.projectId)
+        assertEquals(615, reminder.timeMinutes)
+        assertEquals("1,2,3,4,5,6,7", reminder.repeatDays)
+        assertTrue(!reminder.enabled)
+        assertEquals(1_300, reminder.quietStartMinutes)
+        assertEquals(390, reminder.quietEndMinutes)
+        database.close()
     }
 
     private fun inMemoryDatabase(context: Context): LearnListDatabase =

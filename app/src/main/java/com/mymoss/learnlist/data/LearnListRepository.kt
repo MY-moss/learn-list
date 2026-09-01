@@ -488,6 +488,7 @@ class LearnListRepository(
         repeatDays: String = "1,2,3,4,5,6,7",
         quietStartMinutes: Int? = null,
         quietEndMinutes: Int? = null,
+        enabled: Boolean = true,
     ): ReminderEntity {
         val normalizedDays = validateReminderConfiguration(
             projectId = projectId,
@@ -500,7 +501,7 @@ class LearnListRepository(
         val now = nowMillis()
         val reminder = ReminderEntity(
             id = newId(), projectId = projectId, kind = kind,
-            timeMinutes = timeMinutes, repeatDays = normalizedDays, enabled = true,
+            timeMinutes = timeMinutes, repeatDays = normalizedDays, enabled = enabled,
             quietStartMinutes = quietStartMinutes, quietEndMinutes = quietEndMinutes,
             createdAt = now, updatedAt = now,
         )

@@ -8,16 +8,15 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 private val Context.learnListDataStore by preferencesDataStore(name = "learn_list_settings")
 
 data class AppSettings(
     val reviewLimit: Int = 20,
-    val summaryReminderEnabled: Boolean = true,
-    val summaryReminderMinutes: Int = 20 * 60,
-    val quietStartMinutes: Int = 22 * 60,
-    val quietEndMinutes: Int = 7 * 60,
     val restDaysCsv: String = "",
     val lastUpdateCheckEpochMillis: Long = 0L,
     /** Latest release the user chose to temporarily dismiss from automatic checks. */
@@ -58,13 +57,45 @@ data class AppSettings(
     val feedbackAudioName: String? = null,
 )
 
+/**
+ * Compatibility-only settings written by versions before reminders became first-class records.
+ * They are converted to a real SUMMARY reminder once and are never used for scheduling directly.
+ */
+data class LegacySummaryReminderSettings(
+    val enabled: Boolean,
+    val timeMinutes: Int,
+    val quietStartMinutes: Int,
+    val quietEndMinutes: Int,
+) {
+    companion object {
+        fun from(
+            enabled: Boolean?,
+            timeMinutes: Int?,
+            quietStartMinutes: Int?,
+            quietEndMinutes: Int?,
+        ): LegacySummaryReminderSettings? {
+            if (enabled == null && timeMinutes == null && quietStartMinutes == null && quietEndMinutes == null) return null
+            return LegacySummaryReminderSettings(
+                enabled = enabled ?: true,
+                timeMinutes = (timeMinutes ?: 20 * 60).coerceIn(0, 1439),
+                quietStartMinutes = (quietStartMinutes ?: 22 * 60).coerceIn(0, 1439),
+                quietEndMinutes = (quietEndMinutes ?: 7 * 60).coerceIn(0, 1439),
+            )
+        }
+    }
+}
+
 class SettingsRepository(private val context: Context) {
+    private val legacyMigrationMutex = Mutex()
+
     private object Keys {
         val reviewLimit = intPreferencesKey("review_limit")
+        // Kept only so an upgrade can consume values written by pre-unified-reminder versions.
         val summaryEnabled = booleanPreferencesKey("summary_enabled")
         val summaryMinutes = intPreferencesKey("summary_minutes")
         val quietStart = intPreferencesKey("quiet_start")
         val quietEnd = intPreferencesKey("quiet_end")
+        val legacySummaryMigrationCompleted = booleanPreferencesKey("legacy_summary_reminder_migrated")
         val restDays = stringPreferencesKey("rest_days")
         val lastUpdateCheck = longPreferencesKey("last_update_check")
         val dismissedUpdateVersion = stringPreferencesKey("dismissed_update_version")
@@ -105,10 +136,6 @@ class SettingsRepository(private val context: Context) {
     val settings: Flow<AppSettings> = context.learnListDataStore.data.map { values ->
         AppSettings(
             reviewLimit = values[Keys.reviewLimit] ?: 20,
-            summaryReminderEnabled = values[Keys.summaryEnabled] ?: true,
-            summaryReminderMinutes = values[Keys.summaryMinutes] ?: 20 * 60,
-            quietStartMinutes = values[Keys.quietStart] ?: 22 * 60,
-            quietEndMinutes = values[Keys.quietEnd] ?: 7 * 60,
             restDaysCsv = values[Keys.restDays] ?: "",
             lastUpdateCheckEpochMillis = values[Keys.lastUpdateCheck] ?: 0L,
             dismissedUpdateVersionName = values[Keys.dismissedUpdateVersion]?.takeIf(String::isNotBlank),
@@ -151,10 +178,6 @@ class SettingsRepository(private val context: Context) {
         context.learnListDataStore.edit { values ->
             val current = AppSettings(
                 reviewLimit = values[Keys.reviewLimit] ?: 20,
-                summaryReminderEnabled = values[Keys.summaryEnabled] ?: true,
-                summaryReminderMinutes = values[Keys.summaryMinutes] ?: 20 * 60,
-                quietStartMinutes = values[Keys.quietStart] ?: 22 * 60,
-                quietEndMinutes = values[Keys.quietEnd] ?: 7 * 60,
                 restDaysCsv = values[Keys.restDays] ?: "",
                 lastUpdateCheckEpochMillis = values[Keys.lastUpdateCheck] ?: 0L,
                 dismissedUpdateVersionName = values[Keys.dismissedUpdateVersion]?.takeIf(String::isNotBlank),
@@ -193,10 +216,6 @@ class SettingsRepository(private val context: Context) {
             )
             val next = transform(current)
             values[Keys.reviewLimit] = next.reviewLimit.coerceIn(1, 1000)
-            values[Keys.summaryEnabled] = next.summaryReminderEnabled
-            values[Keys.summaryMinutes] = next.summaryReminderMinutes.coerceIn(0, 1439)
-            values[Keys.quietStart] = next.quietStartMinutes.coerceIn(0, 1439)
-            values[Keys.quietEnd] = next.quietEndMinutes.coerceIn(0, 1439)
             values[Keys.restDays] = next.restDaysCsv
             values[Keys.lastUpdateCheck] = next.lastUpdateCheckEpochMillis.coerceAtLeast(0)
             next.dismissedUpdateVersionName?.takeIf(String::isNotBlank)?.let { values[Keys.dismissedUpdateVersion] = it }
@@ -235,6 +254,33 @@ class SettingsRepository(private val context: Context) {
             next.feedbackAudioPath?.takeIf(String::isNotBlank)?.let { values[Keys.feedbackAudioPath] = it } ?: values.remove(Keys.feedbackAudioPath)
             next.feedbackAudioName?.takeIf(String::isNotBlank)?.let { values[Keys.feedbackAudioName] = it } ?: values.remove(Keys.feedbackAudioName)
         }
+    }
+
+    /**
+     * Converts legacy global reminder preferences into one unified reminder.
+     * The callback runs before the legacy keys are deleted; if it fails, the migration is retried
+     * on the next launch instead of silently losing the old values.
+     */
+    suspend fun migrateLegacySummaryReminderSettings(
+        apply: suspend (LegacySummaryReminderSettings) -> Unit,
+    ): Boolean = legacyMigrationMutex.withLock {
+        val values = context.learnListDataStore.data.first()
+        if (values[Keys.legacySummaryMigrationCompleted] == true) return@withLock false
+        val legacy = LegacySummaryReminderSettings.from(
+            enabled = values[Keys.summaryEnabled],
+            timeMinutes = values[Keys.summaryMinutes],
+            quietStartMinutes = values[Keys.quietStart],
+            quietEndMinutes = values[Keys.quietEnd],
+        )
+        if (legacy != null) apply(legacy)
+        context.learnListDataStore.edit { mutable ->
+            mutable.remove(Keys.summaryEnabled)
+            mutable.remove(Keys.summaryMinutes)
+            mutable.remove(Keys.quietStart)
+            mutable.remove(Keys.quietEnd)
+            mutable[Keys.legacySummaryMigrationCompleted] = true
+        }
+        legacy != null
     }
 
     private fun String?.normalizedFeedbackMode(): String = when (this) {
