@@ -198,9 +198,13 @@ class MainActivity : ComponentActivity() {
         }
         val reminderScheduler = ReminderScheduler(this, app.repository, appClock)
         lifecycleScope.launch {
-            app.repository.observeReminders().combine(app.repository.observeCountdowns()) { _, _ -> Unit }.collectLatest {
-                runCatching { reminderScheduler.rescheduleAll() }
-            }
+            app.repository
+                .observeReminders()
+                .combine(app.repository.observeCountdowns()) { _, _ -> Unit }
+                .combine(app.repository.observeProjects()) { _, _ -> Unit }
+                .collectLatest {
+                    runCatching { reminderScheduler.rescheduleAll() }
+                }
         }
         lifecycleScope.launch {
             settingsRepository.settings.collectLatest { settings ->
@@ -495,3 +499,4 @@ class MainActivity : ComponentActivity() {
 
     private companion object { const val NOTIFICATION_REQUEST_CODE = 1001 }
 }
+
