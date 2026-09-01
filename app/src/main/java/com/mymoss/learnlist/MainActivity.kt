@@ -167,9 +167,9 @@ class MainActivity : ComponentActivity() {
         updateState.update { it.copy(isChecking = true, errorMessage = null, statusMessage = if (manual) "正在检查 GitHub Release…" else "自动检查中…") }
         val checkedAt = System.currentTimeMillis()
         val result = ReleaseChecker().checkLatest()
-        settingsRepository.update { it.copy(lastUpdateCheckEpochMillis = checkedAt) }
         result.fold(
             onSuccess = { info ->
+                settingsRepository.update { it.copy(lastUpdateCheckEpochMillis = checkedAt) }
                 updateState.update {
                     it.copy(
                         isChecking = false,
