@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
     private var pendingExport: ByteArray? = null
     private var pendingImportPassword: String = ""
     private var pendingImportMode: BackupImportMode = BackupImportMode.MERGE
+    private var automaticUpdateJob: Job? = null
     private val pendingBackupImport = kotlinx.coroutines.flow.MutableStateFlow<PendingBackupImport?>(null)
     private val updateState = MutableStateFlow(UpdateUiState())
 
@@ -100,13 +102,16 @@ class MainActivity : ComponentActivity() {
                 runCatching { reminderScheduler.rescheduleAll() }
             }
         }
-        lifecycleScope.launch { checkAutomatically() }
+        automaticUpdateJob = lifecycleScope.launch { checkAutomatically() }
     }
 
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
             runCatching { ReminderScheduler(this@MainActivity, app.repository).rescheduleAll() }
+        }
+        if (automaticUpdateJob?.isActive != true) {
+            automaticUpdateJob = lifecycleScope.launch { checkAutomatically() }
         }
     }
 
