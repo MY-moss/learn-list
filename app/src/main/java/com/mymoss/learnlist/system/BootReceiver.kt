@@ -20,6 +20,9 @@ class BootReceiver : BroadcastReceiver() {
                 ReminderScheduler(context.applicationContext, application.repository).rescheduleAll()
                 val settings = SettingsRepository(context.applicationContext).settings.first()
                 settings.focusEndAtEpochMillis?.let { FocusTimerScheduler(context.applicationContext).schedule(it) }
+                if (settings.focusStartedAtEpochMillis != null && settings.focusEndAtEpochMillis != null) {
+                    FocusTimerService.sync(context.applicationContext)
+                }
             }
             pendingResult.finish()
         }
