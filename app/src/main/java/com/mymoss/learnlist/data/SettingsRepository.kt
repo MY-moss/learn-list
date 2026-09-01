@@ -23,6 +23,7 @@ data class AppSettings(
     val focusStartedAtEpochMillis: Long? = null,
     val focusEndAtEpochMillis: Long? = null,
     val focusPlannedMinutes: Int = 25,
+    val hasCompletedOnboarding: Boolean = false,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -37,6 +38,7 @@ class SettingsRepository(private val context: Context) {
         val focusStartedAt = longPreferencesKey("focus_started_at")
         val focusEndAt = longPreferencesKey("focus_end_at")
         val focusPlannedMinutes = intPreferencesKey("focus_planned_minutes")
+        val onboardingCompleted = booleanPreferencesKey("onboarding_completed")
     }
 
     val settings: Flow<AppSettings> = context.learnListDataStore.data.map { values ->
@@ -51,6 +53,7 @@ class SettingsRepository(private val context: Context) {
             focusStartedAtEpochMillis = values[Keys.focusStartedAt]?.takeIf { it > 0L },
             focusEndAtEpochMillis = values[Keys.focusEndAt]?.takeIf { it > 0L },
             focusPlannedMinutes = values[Keys.focusPlannedMinutes] ?: 25,
+            hasCompletedOnboarding = values[Keys.onboardingCompleted] ?: false,
         )
     }
 
@@ -67,6 +70,7 @@ class SettingsRepository(private val context: Context) {
                 focusStartedAtEpochMillis = values[Keys.focusStartedAt]?.takeIf { it > 0L },
                 focusEndAtEpochMillis = values[Keys.focusEndAt]?.takeIf { it > 0L },
                 focusPlannedMinutes = values[Keys.focusPlannedMinutes] ?: 25,
+                hasCompletedOnboarding = values[Keys.onboardingCompleted] ?: false,
             )
             val next = transform(current)
             values[Keys.reviewLimit] = next.reviewLimit.coerceIn(1, 1000)
@@ -79,6 +83,8 @@ class SettingsRepository(private val context: Context) {
             next.focusStartedAtEpochMillis?.let { values[Keys.focusStartedAt] = it } ?: values.remove(Keys.focusStartedAt)
             next.focusEndAtEpochMillis?.let { values[Keys.focusEndAt] = it } ?: values.remove(Keys.focusEndAt)
             values[Keys.focusPlannedMinutes] = next.focusPlannedMinutes.coerceIn(1, 180)
+            values[Keys.onboardingCompleted] = next.hasCompletedOnboarding
         }
     }
 }
+
