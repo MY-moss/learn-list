@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -300,47 +302,50 @@ fun LearnListApp(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Surface(color = MaterialTheme.colorScheme.background) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                text = "LEARN / LIST",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 2.sp,
-                            )
-                            Text(selectedTab.label, style = MaterialTheme.typography.headlineSmall)
-                        }
-                        if (updateState.available != null) {
-                            AssistChip(
-                                onClick = onDownloadUpdate,
-                                enabled = !updateState.isDownloading,
-                                label = {
-                                    Text(
-                                        if (!updateState.isDownloading) "有更新"
-                                        else updateState.downloadProgress?.let { "${(it * 100).roundToInt()}%" } ?: "更新中",
-                                    )
-                                },
-                                leadingIcon = { Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                            )
-                        }
-                        if (selectedTab == AppTab.TODAY) {
-                            IconButton(onClick = onRequestNotifications) {
-                                Icon(Icons.Default.Notifications, contentDescription = "通知权限")
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 760.dp)
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = "LEARN / LIST",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 2.sp,
+                                )
+                                Text(selectedTab.label, style = MaterialTheme.typography.headlineSmall)
+                            }
+                            if (updateState.available != null) {
+                                AssistChip(
+                                    onClick = onDownloadUpdate,
+                                    enabled = !updateState.isDownloading,
+                                    label = {
+                                        Text(
+                                            if (!updateState.isDownloading) "有更新"
+                                            else updateState.downloadProgress?.let { "${(it * 100).roundToInt()}%" } ?: "更新中",
+                                        )
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                )
+                            }
+                            if (selectedTab == AppTab.TODAY) {
+                                IconButton(onClick = onRequestNotifications) {
+                                    Icon(Icons.Default.Notifications, contentDescription = "通知权限")
+                                }
                             }
                         }
-                    }
-                    if (selectedTab == AppTab.TODAY) {
-                        Text(
-                            text = "把今天过好，剩下的交给节奏。",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 13.sp,
-                        )
+                        if (selectedTab == AppTab.TODAY) {
+                            Text(
+                                text = "把今天过好，剩下的交给节奏。",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp,
+                            )
+                        }
                     }
                 }
             }
@@ -396,11 +401,15 @@ fun LearnListApp(
             }
         },
     ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = AppTab.TODAY.name,
-            modifier = Modifier.fillMaxSize(),
-        ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            NavHost(
+                navController = navController,
+                startDestination = AppTab.TODAY.name,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 760.dp)
+                    .fillMaxHeight(),
+            ) {
             composable(AppTab.TODAY.name) {
                 TodayScreen(state, padding, currentDay, { followsToday = it == LocalDate.now(); currentDay = it }, viewModel, { showReviewDialog = it }, { showCorrectionDialog = it }, { showPagesDialog = it }, { showReadingAdjustmentDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget, reviewBatchSize)
             }
@@ -500,6 +509,7 @@ fun LearnListApp(
                     onRestoreDeletedCountdown = viewModel::restoreDeletedCountdown,
                     onPermanentlyDeleteCountdown = viewModel::permanentlyDeleteCountdown,
                 )
+            }
             }
         }
     }
