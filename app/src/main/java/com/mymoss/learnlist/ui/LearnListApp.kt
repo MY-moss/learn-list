@@ -166,6 +166,7 @@ import com.mymoss.learnlist.domain.TodoRecurrence
 import com.mymoss.learnlist.domain.TodoRepeatRule
 import com.mymoss.learnlist.system.UpdateInfo
 import com.mymoss.learnlist.system.FocusTimerService
+import java.time.Clock
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
@@ -249,6 +250,7 @@ fun LearnListApp(
     pendingImport: PendingBackupImport? = null,
     onConfirmImport: (BackupImportMode) -> Unit = {},
     onCancelImport: () -> Unit = {},
+    appClock: Clock = Clock.systemDefaultZone(),
 ) {
     val state by viewModel.state.collectAsState()
     val navController = rememberNavController()
@@ -276,17 +278,18 @@ fun LearnListApp(
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
     var showOnboarding by rememberSaveable { mutableStateOf(false) }
     val snackbars = remember { SnackbarHostState() }
-    var currentDay by remember { mutableStateOf(LocalDate.now()) }
+    val deviceToday = LocalDate.now(appClock)
+    var currentDay by remember { mutableStateOf(deviceToday) }
     var followsToday by rememberSaveable { mutableStateOf(true) }
 
     LaunchedEffect(onboardingCompleted) {
         if (onboardingCompleted == false) showOnboarding = true
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(appClock) {
         while (true) {
             delay(60_000)
-            if (followsToday) currentDay = LocalDate.now()
+            if (followsToday) currentDay = LocalDate.now(appClock)
         }
     }
 
@@ -411,7 +414,7 @@ fun LearnListApp(
                     .fillMaxHeight(),
             ) {
             composable(AppTab.TODAY.name) {
-                TodayScreen(state, padding, currentDay, { followsToday = it == LocalDate.now(); currentDay = it }, viewModel, { showReviewDialog = it }, { showCorrectionDialog = it }, { showPagesDialog = it }, { showReadingAdjustmentDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget, reviewBatchSize)
+                TodayScreen(state, padding, currentDay, deviceToday, { followsToday = it == deviceToday; currentDay = it }, viewModel, { showReviewDialog = it }, { showCorrectionDialog = it }, { showPagesDialog = it }, { showReadingAdjustmentDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget, reviewBatchSize)
             }
             composable(AppTab.LEARN.name) {
                 LearnScreen(
@@ -798,6 +801,7 @@ private fun TodayScreen(
     state: LearnListUiState,
     padding: PaddingValues,
     today: LocalDate,
+    currentDate: LocalDate,
     onDateChange: (LocalDate) -> Unit,
     viewModel: LearnListViewModel,
     onReview: (LearningTaskEntity) -> Unit,
@@ -869,12 +873,12 @@ private fun TodayScreen(
                 ) { Icon(Icons.Default.ChevronLeft, "查看前一天") }
                 Column(Modifier.weight(1f)) {
                     Text(today.format(DateTimeFormatter.ofPattern("M月d日 · E", Locale.CHINA)), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                    Text(if (today == LocalDate.now()) "今天" else "历史回看", style = MaterialTheme.typography.headlineSmall)
+                    Text(if (today == currentDate) "今天" else "历史回看", style = MaterialTheme.typography.headlineSmall)
                 }
                 IconButton(onClick = { showHistoryCalendar = true }, modifier = Modifier.size(34.dp)) {
                     Icon(Icons.Default.CalendarToday, "打开学习日历")
                 }
-                IconButton(onClick = { if (today.isBefore(LocalDate.now())) onDateChange(today.plusDays(1)) }, enabled = today.isBefore(LocalDate.now()), modifier = Modifier.size(34.dp)) { Icon(Icons.Default.ChevronRight, "查看后一天") }
+                IconButton(onClick = { if (today.isBefore(currentDate)) onDateChange(today.plusDays(1)) }, enabled = today.isBefore(currentDate), modifier = Modifier.size(34.dp)) { Icon(Icons.Default.ChevronRight, "查看后一天") }
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.LocalFireDepartment, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(17.dp))
@@ -960,6 +964,7 @@ private fun TodayScreen(
     if (showHistoryCalendar) {
         HistoryCalendarDialog(
             selectedDate = today,
+            currentDate = currentDate,
             progressFor = { date -> dailyProgressCalculator.calculate(dailyProgressInput, date) },
             onDismiss = { showHistoryCalendar = false },
             onDateSelected = { date ->
@@ -992,13 +997,14 @@ private fun TodayScreen(
 @Composable
 private fun HistoryCalendarDialog(
     selectedDate: LocalDate,
+    currentDate: LocalDate,
     progressFor: (LocalDate) -> DailyProgressSummary,
     onDismiss: () -> Unit,
     onDateSelected: (LocalDate) -> Unit,
 ) {
     var month by rememberSaveable(selectedDate) { mutableStateOf(YearMonth.from(selectedDate)) }
-    val currentMonth = YearMonth.from(LocalDate.now())
-    val today = LocalDate.now()
+    val currentMonth = YearMonth.from(currentDate)
+    val today = currentDate
     val leadingEmptyDays = month.atDay(1).dayOfWeek.value - 1
     val rowCount = (leadingEmptyDays + month.lengthOfMonth() + 6) / 7
     val weekdays = listOf("一", "二", "三", "四", "五", "六", "日")
