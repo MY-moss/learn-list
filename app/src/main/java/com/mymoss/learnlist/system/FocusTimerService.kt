@@ -40,16 +40,23 @@ class FocusTimerService : Service() {
     override fun onCreate() {
         super.onCreate()
         ensureNotificationChannel(this)
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildProgressNotification(null, null, 25, "WORK", 1),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            } else {
-                0
-            },
-        )
+        runCatching {
+            // Promote the service with a deliberately small notification first. The
+            // full notification creates several PendingIntents and is posted after
+            // the service has met Android's foreground-start deadline.
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                buildStartupNotification(),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    0
+                },
+            )
+        }.onFailure {
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -352,6 +359,18 @@ class FocusTimerService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
+
+    private fun buildStartupNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle("专注计时")
+        .setContentText("正在准备番茄钟…")
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .setSilent(true)
+        .setShowWhen(false)
+        .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        .build()
 
     private fun stopService(startId: Int? = null) {
         stopForeground(STOP_FOREGROUND_REMOVE)

@@ -46,16 +46,22 @@ class UpdateDownloadService : Service() {
     override fun onCreate() {
         super.onCreate()
         ensureNotificationChannel(this)
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildNotification("正在准备更新…", null),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            } else {
-                0
-            },
-        )
+        runCatching {
+            // Keep the foreground promotion path minimal. The detailed progress
+            // notification is posted once the service has started its work.
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                buildStartupNotification(),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    0
+                },
+            )
+        }.onFailure {
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -335,6 +341,16 @@ class UpdateDownloadService : Service() {
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .build()
     }
+
+    private fun buildStartupNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setContentTitle("Learn List 更新")
+        .setContentText("正在准备更新…")
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .setSilent(true)
+        .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+        .build()
 
     private fun stopService(startId: Int) {
         stopForeground(STOP_FOREGROUND_REMOVE)

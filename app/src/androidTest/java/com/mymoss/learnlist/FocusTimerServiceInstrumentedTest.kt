@@ -36,6 +36,11 @@ class FocusTimerServiceInstrumentedTest {
             )
         } finally {
             context.stopService(Intent(context, FocusTimerService::class.java))
+            // Give the main process a chance to finish onDestroy before the next
+            // Activity test starts; otherwise Android may report the old FGS
+            // promotion deadline in the following test.
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            SystemClock.sleep(250L)
         }
     }
 }

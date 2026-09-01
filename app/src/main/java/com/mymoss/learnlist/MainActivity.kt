@@ -205,7 +205,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        UpdateDownloadService.sync(applicationContext)
+        lifecycleScope.launch {
+            if (settingsRepository.settings.first().updateTransferActive) {
+                UpdateDownloadService.sync(applicationContext)
+            }
+        }
         automaticUpdateJob = lifecycleScope.launch { checkAutomatically() }
     }
 
