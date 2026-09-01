@@ -1278,7 +1278,7 @@ internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, o
         UpdatePhase.IDLE -> updateState.statusMessage ?: "稳定版更新来自 GitHub，数据不会上传"
     }
     val progress = updateState.downloadProgress?.coerceIn(0f, 1f)
-    Surface(shape = MaterialTheme.shapes.medium, color = if (available != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, if (available != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant)) {
+    Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = if (available != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, if (available != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (available == null) Icons.Default.CloudDownload else Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
