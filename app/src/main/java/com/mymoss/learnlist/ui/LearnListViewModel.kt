@@ -3,6 +3,7 @@ package com.mymoss.learnlist.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.mymoss.learnlist.data.AppSettings
 import com.mymoss.learnlist.data.LearnListRepository
 import com.mymoss.learnlist.data.SettingsRepository
 import com.mymoss.learnlist.data.local.CountdownEntity
@@ -56,6 +57,7 @@ class LearnListViewModel(
     private val repository: LearnListRepository,
     private val settingsRepository: SettingsRepository? = null,
     private val focusTimerScheduler: FocusTimerScheduler? = null,
+    private val onFocusCompleted: (AppSettings) -> Unit = {},
 ) : ViewModel() {
     private val _state = MutableStateFlow(LearnListUiState())
     val state: StateFlow<LearnListUiState> = _state.asStateFlow()
@@ -289,8 +291,7 @@ class LearnListViewModel(
             focusEndAt = end
             val planned = saved.focusPlannedMinutes.coerceIn(1, 180)
             if (end <= System.currentTimeMillis()) {
-                repository.recordFocusSessionIfNeeded(planned, planned, startedAt = started)
-                clearPersistedFocusTimer()
+                finishFocus(planned, started, end)
                 _state.update { it.copy(message = "后台专注已完成，记录已恢复") }
             } else {
                 _state.update {
@@ -308,12 +309,13 @@ class LearnListViewModel(
 
     private fun launchFocusTimer(plannedMinutes: Int) {
         focusJob?.cancel()
+        val startedAt = focusStartedAt
+        val endAt = focusEndAt
         focusJob = viewModelScope.launch {
             while (isActive) {
-                val remaining = ((focusEndAt - System.currentTimeMillis()) / 1000L).toInt()
+                val remaining = ((endAt - System.currentTimeMillis()) / 1000L).toInt()
                 if (remaining <= 0) {
-                    repository.recordFocusSessionIfNeeded(plannedMinutes, plannedMinutes, startedAt = focusStartedAt)
-                    clearPersistedFocusTimer()
+                    finishFocus(plannedMinutes, startedAt, endAt)
                     _state.update { it.copy(focusRunning = false, focusRemainingSeconds = 0, message = "专注完成，太棒了") }
                     break
                 }
@@ -343,6 +345,16 @@ class LearnListViewModel(
         settingsRepository?.update { it.copy(focusStartedAtEpochMillis = null, focusEndAtEpochMillis = null) }
     }
 
+    private suspend fun finishFocus(plannedMinutes: Int, startedAt: Long, endAt: Long): Boolean {
+        repository.recordFocusSessionIfNeeded(plannedMinutes, plannedMinutes, startedAt = startedAt)
+        val claimed = settingsRepository?.clearFocusTimerIfMatches(startedAt, endAt) ?: true
+        if (claimed) {
+            focusTimerScheduler?.cancel()
+            settingsRepository?.settings?.first()?.let(onFocusCompleted)
+        }
+        return claimed
+    }
+
     private fun action(block: suspend () -> Unit) {
         viewModelScope.launch {
             runCatching { block() }.onFailure { error -> _state.update { it.copy(message = error.message ?: "操作失败") } }
@@ -356,11 +368,12 @@ class LearnListViewModel(
             repository: LearnListRepository,
             settingsRepository: SettingsRepository? = null,
             focusTimerScheduler: FocusTimerScheduler? = null,
+            onFocusCompleted: (AppSettings) -> Unit = {},
         ): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    LearnListViewModel(repository, settingsRepository, focusTimerScheduler) as T
+                    LearnListViewModel(repository, settingsRepository, focusTimerScheduler, onFocusCompleted) as T
             }
     }
 }

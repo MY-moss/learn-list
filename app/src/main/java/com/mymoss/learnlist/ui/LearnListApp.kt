@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
@@ -61,6 +62,7 @@ import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -88,6 +90,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -199,6 +202,10 @@ fun LearnListApp(
     onDismissUpdate: () -> Unit = {},
     onRequestNotifications: () -> Unit = {},
     onRequestExactAlarms: () -> Unit = {},
+    soundEnabled: Boolean = true,
+    vibrationEnabled: Boolean = true,
+    onSoundEnabledChange: (Boolean) -> Unit = {},
+    onVibrationEnabledChange: (Boolean) -> Unit = {},
     onboardingCompleted: Boolean? = null,
     onCompleteOnboarding: () -> Unit = {},
     pendingImport: PendingBackupImport? = null,
@@ -386,6 +393,10 @@ fun LearnListApp(
                     onDismissUpdate = onDismissUpdate,
                     onRequestNotifications = onRequestNotifications,
                     onRequestExactAlarms = onRequestExactAlarms,
+                    soundEnabled = soundEnabled,
+                    vibrationEnabled = vibrationEnabled,
+                    onSoundEnabledChange = onSoundEnabledChange,
+                    onVibrationEnabledChange = onVibrationEnabledChange,
                     onReplayOnboarding = { showOnboarding = true },
                     onNewReminder = viewModel::addReminder,
                     onSetReminderEnabled = viewModel::setReminderEnabled,
@@ -1121,6 +1132,10 @@ private fun SettingsScreen(
     onDismissUpdate: () -> Unit,
     onRequestNotifications: () -> Unit,
     onRequestExactAlarms: () -> Unit,
+    soundEnabled: Boolean,
+    vibrationEnabled: Boolean,
+    onSoundEnabledChange: (Boolean) -> Unit,
+    onVibrationEnabledChange: (Boolean) -> Unit,
     onReplayOnboarding: () -> Unit,
     onNewReminder: (String?, String, String, String, String, String) -> Unit,
     onSetReminderEnabled: (String, Boolean) -> Unit,
@@ -1207,6 +1222,39 @@ private fun SettingsScreen(
                 }
             }
         }
+        item { SectionHeader("提醒反馈", "专注完成、固定提醒和倒计时提醒") }
+        item {
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(38.dp).clip(RoundedCornerShape(13.dp)).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Notifications, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("按你的场景提醒", fontWeight = FontWeight.Bold)
+                            Text("可同时开启，也可以全部关闭", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                        TagPill(feedbackModeLabel(soundEnabled, vibrationEnabled), MaterialTheme.colorScheme.secondary)
+                    }
+                    FeedbackToggleRow(
+                        icon = Icons.AutoMirrored.Filled.VolumeUp,
+                        title = "声音提示",
+                        subtitle = "使用系统通知提示音",
+                        checked = soundEnabled,
+                        onCheckedChange = onSoundEnabledChange,
+                    )
+                    FeedbackToggleRow(
+                        icon = Icons.Default.Vibration,
+                        title = "振动提示",
+                        subtitle = "使用两次短振，适合不方便开声音时",
+                        checked = vibrationEnabled,
+                        onCheckedChange = onVibrationEnabledChange,
+                    )
+                    Text("手机的静音、勿扰模式或系统通知设置仍可能抑制反馈。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                }
+            }
+        }
         item { SectionHeader("数据安全", "备份、迁移和恢复都由你掌握") }
         item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
@@ -1263,6 +1311,30 @@ private fun SettingsScreen(
             },
             dismissButton = { TextButton(onClick = { reminderToDeleteId = null }) { Text("取消") } },
         )
+    }
+}
+
+@Composable
+private fun FeedbackToggleRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(34.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -1597,6 +1669,12 @@ private fun metricLabel(metric: String): String = when (metric) { "READING_PAGES
 private fun periodLabel(period: String): String = when (period) { "WEEKLY" -> "本周"; "MONTHLY" -> "本月"; "CUSTOM" -> "自定义"; else -> "今天" }
 private fun formatMinutes(value: Int?): String = value?.let { "${it / 60}:${(it % 60).toString().padStart(2, '0')}" } ?: "未设置"
 private fun formatLastChecked(epoch: Long?): String = epoch?.let { Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm", Locale.CHINA)) } ?: "尚未检查"
+private fun feedbackModeLabel(soundEnabled: Boolean, vibrationEnabled: Boolean): String = when {
+    soundEnabled && vibrationEnabled -> "声音 + 振动"
+    soundEnabled -> "仅声音"
+    vibrationEnabled -> "仅振动"
+    else -> "静音"
+}
 private fun formatBytes(bytes: Long): String {
     val units = arrayOf("B", "KB", "MB", "GB")
     var value = bytes.toDouble()

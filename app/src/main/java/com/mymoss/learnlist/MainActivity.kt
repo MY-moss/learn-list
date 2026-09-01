@@ -21,6 +21,7 @@ import com.mymoss.learnlist.data.backup.BackupImportMode
 import com.mymoss.learnlist.data.backup.PendingBackupImport
 import com.mymoss.learnlist.data.backup.BackupService
 import com.mymoss.learnlist.system.ReleaseChecker
+import com.mymoss.learnlist.system.FeedbackManager
 import com.mymoss.learnlist.system.FocusTimerScheduler
 import com.mymoss.learnlist.system.ReminderScheduler
 import com.mymoss.learnlist.system.UpdateDownloadStage
@@ -76,12 +77,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val feedbackContext = applicationContext
         setContent {
             LearnListTheme {
                 val pending by pendingBackupImport.collectAsState()
                 val appSettings by settingsRepository.settings.collectAsState(initial = null)
                 val viewModel: com.mymoss.learnlist.ui.LearnListViewModel = viewModel(
-                    factory = com.mymoss.learnlist.ui.LearnListViewModel.factory(app.repository, settingsRepository, focusTimerScheduler),
+                    factory = com.mymoss.learnlist.ui.LearnListViewModel.factory(
+                        repository = app.repository,
+                        settingsRepository = settingsRepository,
+                        focusTimerScheduler = focusTimerScheduler,
+                        onFocusCompleted = { settings -> FeedbackManager.play(feedbackContext, settings) },
+                    ),
                 )
                 LearnListApp(
                     viewModel = viewModel,
@@ -93,6 +100,14 @@ class MainActivity : ComponentActivity() {
                     onDismissUpdate = { updateState.update { it.copy(available = null) } },
                     onRequestNotifications = ::requestNotificationPermission,
                     onRequestExactAlarms = ::requestExactAlarmPermission,
+                    soundEnabled = appSettings?.soundEnabled ?: true,
+                    vibrationEnabled = appSettings?.vibrationEnabled ?: true,
+                    onSoundEnabledChange = { enabled ->
+                        lifecycleScope.launch { settingsRepository.update { it.copy(soundEnabled = enabled) } }
+                    },
+                    onVibrationEnabledChange = { enabled ->
+                        lifecycleScope.launch { settingsRepository.update { it.copy(vibrationEnabled = enabled) } }
+                    },
                     onboardingCompleted = appSettings?.hasCompletedOnboarding,
                     onCompleteOnboarding = {
                         lifecycleScope.launch {

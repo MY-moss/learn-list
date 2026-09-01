@@ -1,8 +1,6 @@
 package com.mymoss.learnlist.system
 
 import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -37,14 +35,10 @@ class FocusReceiver : BroadcastReceiver() {
                         actualMinutes = plannedMinutes,
                         startedAt = startedAt,
                     )
-                    settingsRepository.update { current ->
-                        if (current.focusStartedAtEpochMillis == startedAt && current.focusEndAtEpochMillis == endAt) {
-                            current.copy(focusStartedAtEpochMillis = null, focusEndAtEpochMillis = null)
-                        } else {
-                            current
-                        }
+                    if (settingsRepository.clearFocusTimerIfMatches(startedAt, endAt)) {
+                        FeedbackManager.play(context.applicationContext, settings)
+                        postNotification(context.applicationContext, plannedMinutes)
                     }
-                    postNotification(context.applicationContext, plannedMinutes)
                 }
             }
             pendingResult.finish()
@@ -53,10 +47,7 @@ class FocusReceiver : BroadcastReceiver() {
 
     private fun postNotification(context: Context, plannedMinutes: Int) {
         if (FocusBuildPermission.canPost(context)) {
-            val manager = context.getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(
-                NotificationChannel(ReminderReceiver.CHANNEL_ID, "学习提醒", NotificationManager.IMPORTANCE_DEFAULT),
-            )
+            ReminderReceiver.ensureNotificationChannel(context)
             val openIntent = PendingIntent.getActivity(
                 context,
                 NOTIFICATION_ID,
@@ -69,6 +60,7 @@ class FocusReceiver : BroadcastReceiver() {
                 .setContentText("${plannedMinutes.coerceAtLeast(1)} 分钟专注已结束，休息一下吧")
                 .setContentIntent(openIntent)
                 .setAutoCancel(true)
+                .setSilent(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
             try {

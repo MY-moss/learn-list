@@ -16,11 +16,13 @@ import com.mymoss.learnlist.MainActivity
 import com.mymoss.learnlist.R
 import com.mymoss.learnlist.data.BackupSnapshot
 import com.mymoss.learnlist.data.DailyProgressMapper
+import com.mymoss.learnlist.data.SettingsRepository
 import com.mymoss.learnlist.domain.RecallRating
 import com.mymoss.learnlist.domain.DailyProgressCalculator
 import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class ReminderReceiver : BroadcastReceiver() {
@@ -62,8 +64,10 @@ class ReminderReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
-                createChannel(context)
+                ensureNotificationChannel(context)
                 val snapshot = application.repository.snapshot()
+                val settings = SettingsRepository(context.applicationContext).settings.first()
+                FeedbackManager.play(context.applicationContext, settings)
                 if (BuildPermission.canPost(context)) {
                     postNotification(context, intent, kind, snapshot)
                 }
@@ -99,6 +103,7 @@ class ReminderReceiver : BroadcastReceiver() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openIntent)
             .setAutoCancel(true)
+            .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, title.hashCode())
         val taskId = if (kind != "PROJECT") {
@@ -154,11 +159,6 @@ class ReminderReceiver : BroadcastReceiver() {
         pendingFlags(),
     )
 
-    private fun createChannel(context: Context) {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "学习提醒", NotificationManager.IMPORTANCE_DEFAULT))
-    }
-
     private fun pendingFlags(): Int = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
     companion object {
@@ -171,7 +171,17 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_KIND = "kind"
         const val EXTRA_TITLE = "title"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
-        const val CHANNEL_ID = "study_reminders"
+        const val CHANNEL_ID = "study_reminders_feedback"
+
+        fun ensureNotificationChannel(context: Context) {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "学习提醒", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    setSound(null, null)
+                    enableVibration(false)
+                },
+            )
+        }
     }
 }
 

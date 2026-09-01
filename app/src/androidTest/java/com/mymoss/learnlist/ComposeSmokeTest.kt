@@ -1,11 +1,14 @@
 package com.mymoss.learnlist
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollToNodeAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -41,6 +44,10 @@ class ComposeSmokeTest {
         composeRule.onNodeWithText("检查更新").assertIsDisplayed()
         composeRule.onNodeWithText("通知权限").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("精确提醒权限").performScrollTo().assertIsDisplayed()
+        composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("声音提示"))
+        composeRule.onNodeWithText("声音提示").assertIsDisplayed()
+        composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("振动提示"))
+        composeRule.onNodeWithText("振动提示").assertIsDisplayed()
     }
 }
 
