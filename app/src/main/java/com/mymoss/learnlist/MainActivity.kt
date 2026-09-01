@@ -16,6 +16,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import com.mymoss.learnlist.data.SettingsRepository
 import com.mymoss.learnlist.data.DiagnosticsService
 import com.mymoss.learnlist.data.backup.BackupImportMode
@@ -34,6 +35,7 @@ import com.mymoss.learnlist.ui.UpdatePhase
 import com.mymoss.learnlist.ui.UpdateUiState
 import com.mymoss.learnlist.ui.theme.LearnListTheme
 import java.io.ByteArrayOutputStream
+import java.time.Clock
 import java.time.Duration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -116,6 +118,7 @@ class MainActivity : ComponentActivity() {
         val feedbackContext = applicationContext
         setContent {
             LearnListTheme {
+                val appClock = remember { Clock.systemDefaultZone() }
                 val pending by pendingBackupImport.collectAsState()
                 val appSettings by settingsRepository.settings.collectAsState(initial = null)
                 val viewModel: com.mymoss.learnlist.ui.LearnListViewModel = viewModel(
@@ -190,6 +193,7 @@ class MainActivity : ComponentActivity() {
                     pendingImport = pending,
                     onConfirmImport = ::confirmImport,
                     onCancelImport = { pendingBackupImport.value = null },
+                    appClock = appClock,
                 )
             }
         }
