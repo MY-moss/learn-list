@@ -17,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import com.mymoss.learnlist.data.SettingsRepository
+import com.mymoss.learnlist.data.DiagnosticsService
 import com.mymoss.learnlist.data.backup.BackupImportMode
 import com.mymoss.learnlist.data.backup.PendingBackupImport
 import com.mymoss.learnlist.data.backup.BackupService
@@ -54,9 +55,11 @@ class MainActivity : ComponentActivity() {
             java.io.File(filesDir, "feedback-audio"),
         )
     }
+    private val diagnosticsService by lazy { DiagnosticsService(this, app.repository, settingsRepository) }
     private val settingsRepository by lazy { SettingsRepository(this) }
     private val focusTimerScheduler by lazy { FocusTimerScheduler(this) }
     private var pendingExport: ByteArray? = null
+    private var pendingDiagnostics: ByteArray? = null
     private var pendingImportPassword: String = ""
     private var pendingImportMode: BackupImportMode = BackupImportMode.MERGE
     private var automaticUpdateJob: Job? = null
@@ -70,6 +73,16 @@ class MainActivity : ComponentActivity() {
             runCatching { contentResolver.openOutputStream(uri)?.use { it.write(bytes) } }
                 .onSuccess { showToast("备份已保存") }
                 .onFailure { showToast("保存备份失败：${it.message}") }
+        }
+    }
+
+    private val createDiagnostics = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val bytes = pendingDiagnostics ?: return@registerForActivityResult
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { contentResolver.openOutputStream(uri)?.use { it.write(bytes) } }
+                .onSuccess { pendingDiagnostics = null; showToast("脱敏诊断已保存") }
+                .onFailure { showToast("保存诊断失败：${it.message}") }
         }
     }
 
@@ -123,6 +136,7 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     onExportBackup = ::exportBackup,
                     onImportBackup = ::chooseImport,
+                    onExportDiagnostics = ::exportDiagnostics,
                     onCheckForUpdate = ::checkForUpdate,
                     updateState = updateState.collectAsState().value,
                     onDownloadUpdate = ::downloadAvailableUpdate,
@@ -230,6 +244,15 @@ class MainActivity : ComponentActivity() {
                 pendingExport = backupService.export(encrypted, password)
                 createBackup.launch(if (encrypted) "learn-list-backup.llbackup" else "learn-list-backup.json")
             }.onFailure { showToast("导出失败：${it.message}") }
+        }
+    }
+
+    private fun exportDiagnostics() {
+        lifecycleScope.launch {
+            runCatching {
+                pendingDiagnostics = diagnosticsService.export()
+                createDiagnostics.launch("learn-list-diagnostics.json")
+            }.onFailure { showToast("生成诊断失败：${it.message}") }
         }
     }
 
