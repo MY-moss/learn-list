@@ -123,6 +123,8 @@ class BackupService(
                     quietStartMinutes = imported.quietStartMinutes,
                     quietEndMinutes = imported.quietEndMinutes,
                     restDaysCsv = imported.restDaysCsv,
+                    soundEnabled = imported.soundEnabled,
+                    vibrationEnabled = imported.vibrationEnabled,
                 )
             }
         }
@@ -399,6 +401,8 @@ class BackupService(
         put("quietStartMinutes", item.quietStartMinutes)
         put("quietEndMinutes", item.quietEndMinutes)
         put("restDaysCsv", item.restDaysCsv)
+        put("soundEnabled", item.soundEnabled)
+        put("vibrationEnabled", item.vibrationEnabled)
     }
 
     private fun parseProject(o: JSONObject) = ProjectEntity(
@@ -476,6 +480,8 @@ class BackupService(
             quietStartMinutes = o.optInt("quietStartMinutes", 22 * 60).coerceIn(0, 1439),
             quietEndMinutes = o.optInt("quietEndMinutes", 7 * 60).coerceIn(0, 1439),
             restDaysCsv = restDays,
+            soundEnabled = o.optBoolean("soundEnabled", true),
+            vibrationEnabled = o.optBoolean("vibrationEnabled", true),
         )
     }
 
