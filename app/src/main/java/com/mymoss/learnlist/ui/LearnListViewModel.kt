@@ -27,6 +27,7 @@ import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -165,24 +166,24 @@ class LearnListViewModel(
         viewModelScope.launch { flow.collect { value -> _state.update { it.update(value) } } }
     }
 
-    fun addProject(title: String, type: String, description: String, tags: String) = action {
+    fun addProject(title: String, type: String, description: String, tags: String, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         require(title.isNotBlank()) { "请输入项目名称" }
         repository.addProject(title, type, description, tags)
         say("项目已创建")
     }
 
-    fun addTask(projectId: String, title: String, prompt: String, notes: String, source: String, required: Boolean) = action {
+    fun addTask(projectId: String, title: String, prompt: String, notes: String, source: String, required: Boolean, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         require(title.isNotBlank()) { "请输入学习任务名称" }
         repository.addTask(projectId, title, prompt, notes, source, required)
         say("学习任务已加入")
     }
 
-    fun updateProject(project: ProjectEntity, title: String, type: String, description: String, tags: String) = action {
+    fun updateProject(project: ProjectEntity, title: String, type: String, description: String, tags: String, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         repository.updateProject(project.id, title, type, description, tags, project.colorHex)
         say("项目已保存，复习进度保持不变")
     }
 
-    fun updateTask(task: LearningTaskEntity, title: String, prompt: String, notes: String, source: String, required: Boolean) = action {
+    fun updateTask(task: LearningTaskEntity, title: String, prompt: String, notes: String, source: String, required: Boolean, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         repository.updateTask(task.id, title, prompt, notes, source, required)
         say("学习任务已保存，复习阶段保持不变")
     }
@@ -197,7 +198,7 @@ class LearnListViewModel(
         say(if (rating == RecallRating.SNOOZE) "已安排稍后提醒" else "复习记录已保存")
     }
 
-    fun correctReview(task: LearningTaskEntity, correctedStageText: String, nextReviewDateText: String, reason: String) = action {
+    fun correctReview(task: LearningTaskEntity, correctedStageText: String, nextReviewDateText: String, reason: String, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val correctedStage = correctedStageText.trim().toIntOrNull() ?: error("复习阶段需要是 0 到 7 的数字")
         val nextReviewDate = runCatching { LocalDate.parse(nextReviewDateText.trim()) }
             .getOrElse { error("下次复习日期需要使用 YYYY-MM-DD") }
@@ -205,7 +206,7 @@ class LearnListViewModel(
         say("复习纠正已追加，旧记录仍保留")
     }
 
-    fun addReadingPlan(projectId: String, title: String, totalPagesText: String, dailyTargetText: String, deadlineText: String) = action {
+    fun addReadingPlan(projectId: String, title: String, totalPagesText: String, dailyTargetText: String, deadlineText: String, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val total = totalPagesText.toIntOrNull() ?: error("总页数需要是数字")
         val target = dailyTargetText.toIntOrNull() ?: error("每日页数需要是数字")
         val deadline = deadlineText.trim().takeIf(String::isNotBlank)?.let(LocalDate::parse)
@@ -213,7 +214,7 @@ class LearnListViewModel(
         say("阅读计划已创建")
     }
 
-    fun updateReadingPlan(plan: ReadingPlanEntity, title: String, totalPagesText: String, dailyTargetText: String, deadlineText: String) = action {
+    fun updateReadingPlan(plan: ReadingPlanEntity, title: String, totalPagesText: String, dailyTargetText: String, deadlineText: String, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val total = totalPagesText.toIntOrNull() ?: error("总页数需要是数字")
         val target = dailyTargetText.toIntOrNull() ?: error("每日页数需要是数字")
         val deadline = deadlineText.trim().takeIf(String::isNotBlank)?.let(LocalDate::parse)
@@ -231,13 +232,13 @@ class LearnListViewModel(
         say("今日阅读目标已调整为 $targetPages 页")
     }
 
-    fun adjustReading(plan: ReadingPlanEntity, deltaText: String, reason: String, date: LocalDate? = null) = action {
+    fun adjustReading(plan: ReadingPlanEntity, deltaText: String, reason: String, date: LocalDate? = null, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val delta = deltaText.trim().toIntOrNull() ?: error("调整页数需要是数字，可填写负数")
         repository.adjustReading(plan.id, date ?: today(), delta, reason)
         say("阅读纠正已追加，原始阅读记录仍保留")
     }
 
-    fun logReading(planId: String, pagesText: String, date: LocalDate? = null) = action {
+    fun logReading(planId: String, pagesText: String, date: LocalDate? = null, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val pages = pagesText.toIntOrNull() ?: error("页数需要是数字")
         repository.logReading(planId, date ?: today(), pages)
         say("阅读进度已更新")
@@ -251,14 +252,15 @@ class LearnListViewModel(
         customDays: String,
         dueDateText: String? = null,
         projectId: String? = null,
-    ) = action {
+        onResult: (Boolean) -> Unit = {},
+    ) = action(onResult) {
         require(title.isNotBlank()) { "请输入待办内容" }
         val dueDate = dueDateText?.trim()?.takeIf(String::isNotBlank)?.let(LocalDate::parse)
         repository.addTodo(title, notes, required, customRepeatDays = customDays, repeatRule = repeatRule, dueDate = dueDate, projectId = projectId)
         say("待办已添加")
     }
 
-    fun updateTodo(todo: TodoEntity, title: String, notes: String, required: Boolean, repeatRule: String, customDays: String, dueDateText: String, projectId: String?) = action {
+    fun updateTodo(todo: TodoEntity, title: String, notes: String, required: Boolean, repeatRule: String, customDays: String, dueDateText: String, projectId: String?, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val dueDate = dueDateText.trim().takeIf(String::isNotBlank)?.let(LocalDate::parse)
         repository.updateTodo(todo.id, title, notes, required, repeatRule, customDays, dueDate, projectId)
         say("待办已保存")
@@ -284,7 +286,7 @@ class LearnListViewModel(
         say(if (currentlyCompleted) "已撤销待办完成" else "待办已完成")
     }
 
-    fun addGoal(title: String, metric: String, targetText: String, period: String, endDateText: String = "", projectId: String? = null) = action {
+    fun addGoal(title: String, metric: String, targetText: String, period: String, endDateText: String = "", projectId: String? = null, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val target = targetText.toIntOrNull() ?: error("目标值需要是数字")
         val endDate = endDateText.trim().takeIf(String::isNotBlank)?.let(LocalDate::parse)
         require(period != "CUSTOM" || endDate != null) { "自定义目标需要填写截止日" }
@@ -292,14 +294,14 @@ class LearnListViewModel(
         say("目标已创建")
     }
 
-    fun updateGoal(goal: GoalEntity, title: String, metric: String, targetText: String, period: String, endDateText: String, projectId: String?) = action {
+    fun updateGoal(goal: GoalEntity, title: String, metric: String, targetText: String, period: String, endDateText: String, projectId: String?, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val target = targetText.toIntOrNull() ?: error("目标值需要是数字")
         val endDate = endDateText.trim().takeIf(String::isNotBlank)?.let(LocalDate::parse)
         repository.updateGoal(goal.id, title, metric, target, period, endDate, projectId)
         say("目标已保存")
     }
 
-    fun addCountdown(title: String, dateText: String, timeText: String, note: String, reminderMinutesText: String = "") = action {
+    fun addCountdown(title: String, dateText: String, timeText: String, note: String, reminderMinutesText: String = "", onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val date = LocalDate.parse(dateText)
         val time = java.time.LocalTime.parse(timeText)
         val reminderMinutes = reminderMinutesText.trim().takeIf(String::isNotBlank)?.toIntOrNull()
@@ -315,7 +317,7 @@ class LearnListViewModel(
         say("倒计时已标记完成")
     }
 
-    fun updateCountdown(countdown: CountdownEntity, title: String, dateText: String, timeText: String, note: String, reminderMinutesText: String) = action {
+    fun updateCountdown(countdown: CountdownEntity, title: String, dateText: String, timeText: String, note: String, reminderMinutesText: String, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         val date = LocalDate.parse(dateText)
         val time = java.time.LocalTime.parse(timeText)
         val reminderMinutes = reminderMinutesText.trim().takeIf(String::isNotBlank)?.toIntOrNull()
@@ -331,7 +333,8 @@ class LearnListViewModel(
         quietStartText: String = "22:00",
         quietEndText: String = "07:00",
         repeatDaysText: String = "1,2,3,4,5,6,7",
-    ) = action {
+        onResult: (Boolean) -> Unit = {},
+    ) = action(onResult) {
         val time = java.time.LocalTime.parse(timeText)
         val quietStart = java.time.LocalTime.parse(quietStartText)
         val quietEnd = java.time.LocalTime.parse(quietEndText)
@@ -663,9 +666,13 @@ class LearnListViewModel(
         return claimed
     }
 
-    private fun action(block: suspend () -> Unit) {
+    private fun action(onResult: (Boolean) -> Unit = {}, block: suspend () -> Unit) {
         viewModelScope.launch {
-            runCatching { block() }.onFailure { error -> _state.update { it.copy(message = error.message ?: "操作失败") } }
+            runViewModelAction(
+                onResult = onResult,
+                onError = { message -> _state.update { it.copy(message = message) } },
+                block = block,
+            )
         }
     }
 
@@ -698,6 +705,22 @@ class LearnListViewModel(
                         clock,
                     ) as T
             }
+    }
+}
+
+internal suspend fun runViewModelAction(
+    onResult: (Boolean) -> Unit,
+    onError: (String) -> Unit,
+    block: suspend () -> Unit,
+) {
+    try {
+        block()
+        onResult(true)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        onError(error.message ?: "操作失败")
+        onResult(false)
     }
 }
 
