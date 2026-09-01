@@ -29,6 +29,7 @@ import com.mymoss.learnlist.system.FocusTimerService
 import com.mymoss.learnlist.system.ReminderScheduler
 import com.mymoss.learnlist.system.UpdateDownloadService
 import com.mymoss.learnlist.system.UpdateDownloadStage
+import com.mymoss.learnlist.system.UpdateVisibilityPolicy
 import com.mymoss.learnlist.ui.LearnListApp
 import com.mymoss.learnlist.ui.UpdatePhase
 import com.mymoss.learnlist.ui.UpdateUiState
@@ -144,7 +145,7 @@ class MainActivity : ComponentActivity() {
                     onDownloadUpdate = ::downloadAvailableUpdate,
                     onInstallUpdate = ::installCachedUpdate,
                     onCancelUpdate = ::cancelUpdateDownload,
-                    onDismissUpdate = { updateState.update { it.copy(available = null) } },
+                    onDismissUpdate = ::dismissAvailableUpdate,
                     onRequestNotifications = ::requestNotificationPermission,
                     onRequestExactAlarms = ::requestExactAlarmPermission,
                     soundEnabled = appSettings?.soundEnabled ?: true,
@@ -336,7 +337,16 @@ class MainActivity : ComponentActivity() {
         val result = ReleaseChecker().checkLatest()
         result.fold(
             onSuccess = { info ->
-                settingsRepository.update { it.copy(lastUpdateCheckEpochMillis = checkedAt) }
+                val settings = settingsRepository.settings.first()
+                val visibleInfo = info.takeIf {
+                    UpdateVisibilityPolicy.shouldShow(it, settings.dismissedUpdateVersionName, manual)
+                }
+                settingsRepository.update {
+                    it.copy(
+                        lastUpdateCheckEpochMillis = checkedAt,
+                        dismissedUpdateVersionName = if (info != null && info.versionName != it.dismissedUpdateVersionName) null else it.dismissedUpdateVersionName,
+                    )
+                }
                 updateState.update {
                     it.copy(
                         isChecking = false,
@@ -344,13 +354,19 @@ class MainActivity : ComponentActivity() {
                         downloadProgress = null,
                         downloadedBytes = 0L,
                         totalDownloadBytes = null,
-                        available = info,
-                        statusMessage = if (info == null) "当前已是最新版本" else "发现 v${info.versionName}，可以下载更新",
+                        available = visibleInfo,
+                        statusMessage = UpdateVisibilityPolicy.statusMessage(info, settings.dismissedUpdateVersionName, manual),
                         errorMessage = null,
                         lastCheckedAtEpochMillis = checkedAt,
                     )
                 }
-                if (manual) showToast(if (info == null) "当前已是最新版本" else "发现新版本 v${info.versionName}，请在更新中心确认")
+                if (manual) showToast(
+                    when {
+                        visibleInfo != null -> "发现新版本 v${visibleInfo.versionName}，请在更新中心确认"
+                        info != null -> "已暂不提醒 v${info.versionName}；有更新版本时会再次提示"
+                        else -> "当前已是最新版本"
+                    },
+                )
             },
             onFailure = { error ->
                 updateState.update {
@@ -372,6 +388,15 @@ class MainActivity : ComponentActivity() {
 
     private fun downloadAvailableUpdate() {
         val info = updateState.value.available ?: return
+        lifecycleScope.launch {
+            settingsRepository.update { settings ->
+                if (settings.dismissedUpdateVersionName == info.versionName) {
+                    settings.copy(dismissedUpdateVersionName = null)
+                } else {
+                    settings
+                }
+            }
+        }
         updateState.update {
             it.copy(
                 available = info,
@@ -389,6 +414,15 @@ class MainActivity : ComponentActivity() {
 
     private fun installCachedUpdate() {
         val info = updateState.value.available ?: return
+        lifecycleScope.launch {
+            settingsRepository.update { settings ->
+                if (settings.dismissedUpdateVersionName == info.versionName) {
+                    settings.copy(dismissedUpdateVersionName = null)
+                } else {
+                    settings
+                }
+            }
+        }
         updateState.update {
             it.copy(
                 isDownloading = true,
@@ -411,6 +445,20 @@ class MainActivity : ComponentActivity() {
                 phase = UpdatePhase.IDLE,
                 downloadProgress = null,
                 statusMessage = "下载已暂停，再次点击将从断点继续",
+                errorMessage = null,
+            )
+        }
+    }
+
+    private fun dismissAvailableUpdate() {
+        val info = updateState.value.available ?: return
+        lifecycleScope.launch {
+            settingsRepository.update { it.copy(dismissedUpdateVersionName = info.versionName) }
+        }
+        updateState.update {
+            it.copy(
+                available = null,
+                statusMessage = "已暂不提醒 v${info.versionName}；有更新版本时会再次提示",
                 errorMessage = null,
             )
         }
@@ -449,6 +497,7 @@ class MainActivity : ComponentActivity() {
         settingsRepository.update {
             it.copy(
                 pendingUpdateVersionName = null,
+                dismissedUpdateVersionName = null,
                 updateTransferActive = false,
                 updateTransferTagName = null,
                 updateTransferVersionName = null,

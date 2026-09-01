@@ -20,6 +20,8 @@ data class AppSettings(
     val quietEndMinutes: Int = 7 * 60,
     val restDaysCsv: String = "",
     val lastUpdateCheckEpochMillis: Long = 0L,
+    /** Latest release the user chose to temporarily dismiss from automatic checks. */
+    val dismissedUpdateVersionName: String? = null,
     val pendingUpdateVersionName: String? = null,
     val updateTransferActive: Boolean = false,
     val updateTransferTagName: String? = null,
@@ -65,6 +67,7 @@ class SettingsRepository(private val context: Context) {
         val quietEnd = intPreferencesKey("quiet_end")
         val restDays = stringPreferencesKey("rest_days")
         val lastUpdateCheck = longPreferencesKey("last_update_check")
+        val dismissedUpdateVersion = stringPreferencesKey("dismissed_update_version")
         val pendingUpdateVersion = stringPreferencesKey("pending_update_version")
         val updateTransferActive = booleanPreferencesKey("update_transfer_active")
         val updateTransferTagName = stringPreferencesKey("update_transfer_tag")
@@ -108,6 +111,7 @@ class SettingsRepository(private val context: Context) {
             quietEndMinutes = values[Keys.quietEnd] ?: 7 * 60,
             restDaysCsv = values[Keys.restDays] ?: "",
             lastUpdateCheckEpochMillis = values[Keys.lastUpdateCheck] ?: 0L,
+            dismissedUpdateVersionName = values[Keys.dismissedUpdateVersion]?.takeIf(String::isNotBlank),
             pendingUpdateVersionName = values[Keys.pendingUpdateVersion]?.takeIf(String::isNotBlank),
             updateTransferActive = values[Keys.updateTransferActive] ?: false,
             updateTransferTagName = values[Keys.updateTransferTagName]?.takeIf(String::isNotBlank),
@@ -153,6 +157,7 @@ class SettingsRepository(private val context: Context) {
                 quietEndMinutes = values[Keys.quietEnd] ?: 7 * 60,
                 restDaysCsv = values[Keys.restDays] ?: "",
                 lastUpdateCheckEpochMillis = values[Keys.lastUpdateCheck] ?: 0L,
+                dismissedUpdateVersionName = values[Keys.dismissedUpdateVersion]?.takeIf(String::isNotBlank),
                 pendingUpdateVersionName = values[Keys.pendingUpdateVersion]?.takeIf(String::isNotBlank),
                 updateTransferActive = values[Keys.updateTransferActive] ?: false,
                 updateTransferTagName = values[Keys.updateTransferTagName]?.takeIf(String::isNotBlank),
@@ -194,6 +199,8 @@ class SettingsRepository(private val context: Context) {
             values[Keys.quietEnd] = next.quietEndMinutes.coerceIn(0, 1439)
             values[Keys.restDays] = next.restDaysCsv
             values[Keys.lastUpdateCheck] = next.lastUpdateCheckEpochMillis.coerceAtLeast(0)
+            next.dismissedUpdateVersionName?.takeIf(String::isNotBlank)?.let { values[Keys.dismissedUpdateVersion] = it }
+                ?: values.remove(Keys.dismissedUpdateVersion)
             next.pendingUpdateVersionName?.takeIf(String::isNotBlank)?.let { values[Keys.pendingUpdateVersion] = it }
                 ?: values.remove(Keys.pendingUpdateVersion)
             values[Keys.updateTransferActive] = next.updateTransferActive
