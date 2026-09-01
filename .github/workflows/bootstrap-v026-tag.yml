@@ -1,0 +1,27 @@
+name: Bootstrap Learn List v0.2.6 tag
+
+on:
+  push:
+    branches:
+      - release/v0.2.6
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    if: github.ref == 'refs/heads/release/v0.2.6'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v0.2.6" >/dev/null 2>&1; then
+            echo "v0.2.6 already exists"
+            exit 0
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref='refs/tags/v0.2.6' \
+            -f sha="${GITHUB_SHA}"
