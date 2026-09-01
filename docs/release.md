@@ -15,11 +15,11 @@
 
 1. 修改 `app/build.gradle.kts` 中的 `versionCode` 和 `versionName`。
 2. 在 `CHANGELOG` 或 GitHub 提交中记录用户可见变更，并先合并到 `main`。
-3. 创建并推送形如 `v0.2.3` 的新标签：
+3. 不要重复使用已经发布的标签；创建并推送形如 `vX.Y.Z` 的新标签（当前稳定版是 `v0.2.3`，以下用下一版 `v0.2.4` 举例）：
 
    ```powershell
-   git tag v0.2.3
-   git push origin v0.2.3
+   git tag v0.2.4
+   git push origin v0.2.4
    ```
 
 4. `.github/workflows/release.yml` 会用 Actions Secret 签名 Release APK，验证签名，生成同名 `.sha256` 文件并创建 GitHub Release。
