@@ -23,6 +23,7 @@ import com.mymoss.learnlist.data.backup.BackupService
 import com.mymoss.learnlist.system.ReleaseChecker
 import com.mymoss.learnlist.system.FeedbackManager
 import com.mymoss.learnlist.system.FocusTimerScheduler
+import com.mymoss.learnlist.system.FocusTimerService
 import com.mymoss.learnlist.system.ReminderScheduler
 import com.mymoss.learnlist.system.UpdateDownloadStage
 import com.mymoss.learnlist.system.UpdateInstaller
@@ -87,6 +88,10 @@ class MainActivity : ComponentActivity() {
                         repository = app.repository,
                         settingsRepository = settingsRepository,
                         focusTimerScheduler = focusTimerScheduler,
+                        onFocusStarted = { startedAt, endAt, plannedMinutes ->
+                            FocusTimerService.start(applicationContext, startedAt, endAt, plannedMinutes)
+                        },
+                        onFocusStopped = { FocusTimerService.stop(applicationContext) },
                         onFocusCompleted = { settings -> FeedbackManager.play(feedbackContext, settings) },
                     ),
                 )
