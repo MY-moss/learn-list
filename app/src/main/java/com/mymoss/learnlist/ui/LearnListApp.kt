@@ -113,6 +113,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -183,7 +184,9 @@ import java.time.format.TextStyle
 import java.util.Locale
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class AppTab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     TODAY("今日", Icons.Default.Home),
@@ -923,6 +926,7 @@ private fun TodayScreen(
     val focusMinutes = state.focusSessions.filter { it.activityDate(zoneId) == today }.sumOf { it.actualSeconds / 60 }
     val percent = progress.percent
     var showHistoryCalendar by rememberSaveable { mutableStateOf(false) }
+    val mainScope = rememberCoroutineScope()
     var requiredActionsExpanded by rememberSaveable { mutableStateOf(true) }
     var readingExpanded by rememberSaveable { mutableStateOf(true) }
     var todoExpanded by rememberSaveable { mutableStateOf(true) }
@@ -943,7 +947,10 @@ private fun TodayScreen(
                     Text(today.format(DateTimeFormatter.ofPattern("M月d日 · E", Locale.CHINA)), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                     Text(if (today == currentDate) "今天" else "历史回看", style = MaterialTheme.typography.headlineSmall)
                 }
-                IconButton(onClick = { showHistoryCalendar = true }, modifier = Modifier.size(34.dp)) {
+                IconButton(
+                    onClick = { mainScope.launch(Dispatchers.Main.immediate) { showHistoryCalendar = true } },
+                    modifier = Modifier.size(34.dp),
+                ) {
                     Icon(Icons.Default.CalendarToday, "打开学习日历")
                 }
                 IconButton(onClick = { if (today.isBefore(currentDate)) onDateChange(today.plusDays(1)) }, enabled = today.isBefore(currentDate), modifier = Modifier.size(34.dp)) { Icon(Icons.Default.ChevronRight, "查看后一天") }
@@ -1040,10 +1047,12 @@ private fun TodayScreen(
             selectedDate = today,
             currentDate = currentDate,
             progressFor = { date -> dailyProgressCalculator.calculate(dailyProgressInput, date) },
-            onDismiss = { showHistoryCalendar = false },
+            onDismiss = { mainScope.launch(Dispatchers.Main.immediate) { showHistoryCalendar = false } },
             onDateSelected = { date ->
-                onDateChange(date)
-                showHistoryCalendar = false
+                mainScope.launch(Dispatchers.Main.immediate) {
+                    onDateChange(date)
+                    showHistoryCalendar = false
+                }
             },
         )
     }
