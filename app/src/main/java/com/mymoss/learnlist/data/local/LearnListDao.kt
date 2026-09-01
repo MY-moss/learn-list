@@ -180,6 +180,9 @@ interface LearnListDao {
     @Update
     suspend fun updateReminder(reminder: ReminderEntity)
 
+    @Query("DELETE FROM reminders WHERE id = :id")
+    suspend fun deleteReminder(id: String)
+
     @Query("DELETE FROM reminders")
     suspend fun clearReminders()
 
