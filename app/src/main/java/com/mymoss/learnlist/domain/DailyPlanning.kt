@@ -5,6 +5,23 @@ import java.time.LocalDate
 
 enum class TodoRepeatRule { ONCE, DAILY, WEEKLY, WORKDAYS, CUSTOM }
 
+object TodoCompletion {
+    fun dates(completedDates: String): Set<LocalDate> = completedDates.split(',')
+        .mapNotNull { token -> runCatching { LocalDate.parse(token) }.getOrNull() }
+        .toSet()
+
+    fun isCompleted(completedDates: String, date: LocalDate): Boolean = date in dates(completedDates)
+
+    fun setCompleted(completedDates: String, date: LocalDate, completed: Boolean): String {
+        val next = dates(completedDates).toMutableSet()
+        if (completed) next += date else next -= date
+        return next.sorted().joinToString(",")
+    }
+
+    fun toggle(completedDates: String, date: LocalDate): String =
+        setCompleted(completedDates, date, !isCompleted(completedDates, date))
+}
+
 object TodoRecurrence {
     fun isDue(
         rule: TodoRepeatRule,
@@ -27,9 +44,9 @@ object TodoRecurrence {
        }
    }
 
-    fun isCompleted(completedDates: String, date: LocalDate): Boolean =
-        completedDates.split(',').any { it == date.toString() }
+    fun isCompleted(completedDates: String, date: LocalDate): Boolean = TodoCompletion.isCompleted(completedDates, date)
 }
+
 
 object StreakCalculator {
     fun calculate(

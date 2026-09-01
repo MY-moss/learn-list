@@ -68,6 +68,22 @@ class PlanningCalculatorTest {
     }
 
     @Test
+    fun `reading catch up does not create impossible zero page days`() {
+        val targets = ReadingPlanCalculator().rebalance(
+            currentPage = 98,
+            totalPages = 100,
+            from = LocalDate.of(2026, 8, 31),
+            deadline = LocalDate.of(2026, 9, 4),
+        )
+
+        assertEquals(listOf(1, 1), targets.map { it.pages })
+        assertEquals(
+            listOf(LocalDate.of(2026, 8, 31), LocalDate.of(2026, 9, 1)),
+            targets.map { it.date },
+        )
+    }
+
+    @Test
     fun `goal progress is capped at one hundred percent`() {
         val progress = GoalProgressCalculator().calculate(current = 120, target = 100)
 

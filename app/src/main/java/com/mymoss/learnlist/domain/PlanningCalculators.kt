@@ -24,6 +24,65 @@ class DailyProgressCalculator {
             percent = percent,
         )
     }
+
+    fun calculate(
+        input: DailyProgressInput,
+        date: java.time.LocalDate,
+        projectId: String? = null,
+    ): DailyProgressSummary {
+        val activeProjectIds = input.projects.asSequence()
+            .filter { !it.isArchived && !it.isPaused }
+            .filter { projectId == null || it.id == projectId }
+            .map(DailyProjectProgress::id)
+            .toSet()
+        val actions = buildList {
+            input.tasks
+                .filter { it.isRequired && !it.isArchived && it.projectId in activeProjectIds }
+                .filter { task ->
+                    task.createdOn?.isAfter(date) != true &&
+                        (isDue(task, date) || date in task.reviewedDates || task.initialLearningDate == date)
+                }
+                .forEach { task ->
+                    add(DailyAction(isRequired = true, isCompleted = date in task.reviewedDates || task.initialLearningDate == date))
+                }
+
+            input.readings
+                .filter { reading ->
+                    !reading.isPaused && !reading.isArchived && reading.projectId in activeProjectIds &&
+                        !date.isBefore(reading.startDate) &&
+                        (reading.currentPage < reading.totalPages || date in reading.pagesByDate)
+                }
+                .forEach { reading ->
+                    val target = reading.targetsByDate[date] ?: reading.dailyTarget
+                    val pages = reading.pagesByDate[date] ?: 0
+                    val planFinished = reading.currentPage >= reading.totalPages
+                    add(DailyAction(isRequired = true, isCompleted = planFinished || pages >= target.coerceAtLeast(1)))
+                }
+
+            input.todos
+                .filter { it.isRequired && !it.isArchived }
+                .filter { todo ->
+                    if (projectId == null) todo.projectId == null || todo.projectId in activeProjectIds else projectId in activeProjectIds && todo.projectId == projectId
+                }
+                .filter { todo ->
+                    TodoRecurrence.isDue(
+                        rule = todo.repeatRule,
+                        baseDate = todo.baseDate,
+                        date = date,
+                        customDays = todo.customDays,
+                        completedDates = todo.completedDates,
+                    )
+                }
+                .forEach { todo -> add(DailyAction(isRequired = true, isCompleted = date in todo.completedDates)) }
+        }
+        return calculate(actions)
+    }
+
+    private fun isDue(task: DailyTaskProgress, date: java.time.LocalDate): Boolean {
+        if (task.snoozedUntil?.isAfter(date) == true) return false
+        if (!task.hasLearned) return true
+        return task.nextReviewDate == null || !task.nextReviewDate.isAfter(date)
+    }
 }
 
 data class PageTarget(
@@ -58,9 +117,10 @@ class ReadingPlanCalculator : ReadingPlanService {
         val days = (deadline.toEpochDay() - from.toEpochDay() + 1).toInt()
         val remaining = totalPages - currentPage
         if (remaining == 0) return emptyList()
-        val base = remaining / days
-        val remainder = remaining % days
-        return (0 until days).map { offset ->
+        val allocationDays = minOf(days, remaining)
+        val base = remaining / allocationDays
+        val remainder = remaining % allocationDays
+        return (0 until allocationDays).map { offset ->
             PageTarget(
                 date = from.plusDays(offset.toLong()),
                 pages = base + if (offset < remainder) 1 else 0,

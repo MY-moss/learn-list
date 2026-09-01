@@ -28,7 +28,7 @@ class BackupServiceInstrumentedTest {
         val sourceDatabase = inMemoryDatabase(context)
         val sourceRepository = LearnListRepository(sourceDatabase)
         val settings = SettingsRepository(context)
-        settings.update { it.copy(restDaysCsv = "6,7") }
+        settings.update { it.copy(restDaysCsv = "6,7", soundEnabled = false, vibrationEnabled = true) }
         val project = sourceRepository.addProject("备份测试", "书籍")
         sourceRepository.addTask(project.id, "第一章", isRequired = true)
         val recoveredStart = 1_700_000_000_000L
@@ -68,6 +68,17 @@ class BackupServiceInstrumentedTest {
             // Expected.
         }
 
+        val invalidTodoDates = JSONObject(String(service.export(false), StandardCharsets.UTF_8))
+            .put("todos", JSONArray().put(JSONObject().put("id", "todo").put("title", "坏日期").put("repeatRule", "DAILY").put("completedDates", "not-a-date")))
+            .toString()
+            .toByteArray(StandardCharsets.UTF_8)
+        try {
+            service.preview(invalidTodoDates, "")
+            throw AssertionError("非法待办完成日期应该在预览阶段拒绝")
+        } catch (_: BackupException) {
+            // Expected.
+        }
+
         val targetDatabase = inMemoryDatabase(context)
         val targetRepository = LearnListRepository(targetDatabase)
         val targetSettings = SettingsRepository(context)
@@ -79,7 +90,10 @@ class BackupServiceInstrumentedTest {
         )
         assertEquals(1, targetRepository.snapshot().projects.size)
         assertEquals(1, targetRepository.snapshot().tasks.size)
-        assertEquals("6,7", targetSettings.settings.first().restDaysCsv)
+        val restoredSettings = targetSettings.settings.first()
+        assertEquals("6,7", restoredSettings.restDaysCsv)
+        assertTrue(!restoredSettings.soundEnabled)
+        assertTrue(restoredSettings.vibrationEnabled)
 
         sourceDatabase.close()
         targetDatabase.close()

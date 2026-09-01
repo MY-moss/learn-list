@@ -10,11 +10,13 @@ import com.mymoss.learnlist.data.local.CountdownEntity
 import com.mymoss.learnlist.data.local.ReminderEntity
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.Clock
 import java.time.ZoneId
 
 class ReminderScheduler(
     private val context: Context,
     private val repository: LearnListRepository,
+    private val clock: Clock = Clock.systemDefaultZone(),
 ) {
     private val alarmManager = context.getSystemService(AlarmManager::class.java)
 
@@ -22,8 +24,11 @@ class ReminderScheduler(
         val snapshot = repository.snapshot()
         snapshot.reminders.forEach { cancelReminder(it.id) }
         snapshot.countdowns.forEach { cancelCountdown(it.id) }
-        snapshot.reminders.filter(ReminderEntity::enabled).forEach(::scheduleReminder)
-        snapshot.countdowns.filterNot(CountdownEntity::isCompleted).forEach(::scheduleCountdown)
+        snapshot.reminders
+            .filter(ReminderEntity::enabled)
+            .filter { reminder -> reminder.projectId == null || snapshot.projects.any { project -> project.id == reminder.projectId && !project.isArchived && !project.isPaused && project.deletedAt == null } }
+            .forEach(::scheduleReminder)
+        snapshot.countdowns.filter { !it.isCompleted && it.deletedAt == null }.forEach(::scheduleCountdown)
     }
 
     fun cancelReminder(id: String) {
@@ -48,9 +53,10 @@ class ReminderScheduler(
     }
 
     fun scheduleCountdown(countdown: CountdownEntity) {
+        if (countdown.deletedAt != null || countdown.isCompleted) return
         val reminderMinutes = countdown.reminderMinutesBefore ?: 0
         val trigger = countdown.eventAtEpochMillis - reminderMinutes * 60_000L
-        if (trigger <= System.currentTimeMillis()) return
+        if (trigger <= clock.millis()) return
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             putExtra(ReminderReceiver.EXTRA_KIND, "COUNTDOWN")
             putExtra(ReminderReceiver.EXTRA_COUNTDOWN_ID, countdown.id)
@@ -71,13 +77,13 @@ class ReminderScheduler(
     private fun nextReminderTime(reminder: ReminderEntity): Long? {
         val allowedDays = reminder.repeatDays.split(',').mapNotNull { it.trim().toIntOrNull()?.takeIf { day -> day in 1..7 } }.toSet()
         if (allowedDays.isEmpty()) return null
-        val now = java.time.ZonedDateTime.now()
+        val now = java.time.ZonedDateTime.now(clock)
         for (offset in 0..8) {
-            val date = LocalDate.now().plusDays(offset.toLong())
+            val date = LocalDate.now(clock).plusDays(offset.toLong())
             if (date.dayOfWeek.value !in allowedDays) continue
             val hour = reminder.timeMinutes / 60
             val minute = reminder.timeMinutes % 60
-            val candidate = date.atTime(hour, minute).atZone(ZoneId.systemDefault())
+            val candidate = date.atTime(hour, minute).atZone(clock.zone)
             if (!candidate.isAfter(now)) continue
             if (isQuiet(reminder, reminder.timeMinutes)) continue
             return candidate.toInstant().toEpochMilli()

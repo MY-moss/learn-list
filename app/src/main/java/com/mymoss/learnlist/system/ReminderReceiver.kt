@@ -15,16 +15,14 @@ import com.mymoss.learnlist.LearnListApplication
 import com.mymoss.learnlist.MainActivity
 import com.mymoss.learnlist.R
 import com.mymoss.learnlist.data.BackupSnapshot
-import com.mymoss.learnlist.data.local.PageLogEntity
-import com.mymoss.learnlist.data.local.ProjectEntity
-import com.mymoss.learnlist.data.local.TodoEntity
+import com.mymoss.learnlist.data.DailyProgressMapper
+import com.mymoss.learnlist.data.SettingsRepository
 import com.mymoss.learnlist.domain.RecallRating
-import com.mymoss.learnlist.domain.TodoRecurrence
-import com.mymoss.learnlist.domain.TodoRepeatRule
-import java.time.DayOfWeek
+import com.mymoss.learnlist.domain.DailyProgressCalculator
 import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class ReminderReceiver : BroadcastReceiver() {
@@ -41,8 +39,16 @@ class ReminderReceiver : BroadcastReceiver() {
                 CoroutineScope(Dispatchers.IO).launch {
                     runCatching {
                         if (taskId != null) {
-                            val task = application.repository.snapshot().tasks.firstOrNull { it.id == taskId }
-                            if (task != null && !task.hasLearned) {
+                            val snapshot = application.repository.snapshot()
+                            val task = snapshot.tasks.firstOrNull { it.id == taskId }
+                            val taskProjectActive = task?.let { taskItem ->
+                                snapshot.projects.any { project ->
+                                    project.id == taskItem.projectId && !project.isArchived && !project.isPaused && project.deletedAt == null
+                                }
+                            } == true
+                            if (task == null || task.deletedAt != null || task.isArchived || !taskProjectActive) {
+                                // A notification can outlive an archive/delete operation; stale actions are no-ops.
+                            } else if (!task.hasLearned) {
                                 if (intent.action == ACTION_COMPLETE) {
                                     application.repository.completeInitialLearning(taskId)
                                 } else {
@@ -52,7 +58,6 @@ class ReminderReceiver : BroadcastReceiver() {
                                 application.repository.reviewTask(
                                     taskId = taskId,
                                     rating = if (intent.action == ACTION_COMPLETE) RecallRating.REMEMBERED else RecallRating.SNOOZE,
-                                    snoozeUntil = if (intent.action == ACTION_SNOOZE) LocalDate.now().plusDays(1) else null,
                                 )
                             }
                         }
@@ -66,23 +71,64 @@ class ReminderReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
-                createChannel(context)
+                ensureNotificationChannel(context)
                 val snapshot = application.repository.snapshot()
-                if (BuildPermission.canPost(context)) {
-                    postNotification(context, intent, kind, snapshot)
+                val settings = SettingsRepository(context.applicationContext).settings.first()
+                val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID)
+                val reminder = snapshot.reminders.firstOrNull { it.id == reminderId }
+                val project = intent.getStringExtra(EXTRA_PROJECT_ID)?.let { projectId ->
+                    snapshot.projects.firstOrNull { it.id == projectId }
                 }
-                if (kind != "COUNTDOWN") {
-                    val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID)
-                    snapshot.reminders.firstOrNull { it.id == reminderId && it.enabled }?.let {
-                        ReminderScheduler(context, application.repository).scheduleReminder(it)
+                val dueTask = if (kind == "PROJECT") {
+                    snapshot.tasks.firstOrNull { task ->
+                        !task.isArchived && task.deletedAt == null &&
+                            (project?.id == null || task.projectId == project.id) &&
+                            snapshot.projects.any { item ->
+                                item.id == task.projectId && !item.isArchived && !item.isPaused && item.deletedAt == null
+                            } &&
+                            isTaskDue(task, LocalDate.now())
                     }
+                } else {
+                    null
+                }
+                val countdownActive = if (kind == "COUNTDOWN") {
+                    val countdownId = intent.getStringExtra(EXTRA_COUNTDOWN_ID)
+                    snapshot.countdowns.any { it.id == countdownId && !it.isCompleted && !it.isArchived }
+                } else {
+                    true
+                }
+                val canDeliver = ReminderDeliveryPolicy.shouldDeliver(
+                    kind = kind,
+                    reminderEnabled = if (kind == "COUNTDOWN") true else reminder?.enabled == true,
+                    projectActive = project != null && !project.isArchived && !project.isPaused && project.deletedAt == null,
+                    hasDueTask = dueTask != null,
+                    countdownActive = countdownActive,
+                )
+                if (canDeliver) {
+                    FeedbackManager.play(
+                        context.applicationContext,
+                        settings,
+                        if (kind == "COUNTDOWN") FeedbackManager.FeedbackContext.COUNTDOWN else FeedbackManager.FeedbackContext.REMINDER,
+                    )
+                    if (BuildPermission.canPost(context)) {
+                        postNotification(context, intent, kind, snapshot, dueTask?.id)
+                    }
+                }
+                reminder?.takeIf { it.enabled && (it.kind != "PROJECT" || (project != null && !project.isArchived && !project.isPaused && project.deletedAt == null)) }?.let {
+                    ReminderScheduler(context, application.repository).scheduleReminder(it)
                 }
             }
             pendingResult.finish()
         }
     }
 
-    private fun postNotification(context: Context, intent: Intent, kind: String, snapshot: BackupSnapshot) {
+    private fun postNotification(
+        context: Context,
+        intent: Intent,
+        kind: String,
+        snapshot: BackupSnapshot,
+        resolvedTaskId: String? = null,
+    ) {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
@@ -103,17 +149,18 @@ class ReminderReceiver : BroadcastReceiver() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openIntent)
             .setAutoCancel(true)
+            .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, title.hashCode())
-        val taskId = if (kind == "COUNTDOWN") {
+        val taskId = if (kind != "PROJECT") {
             null
         } else {
-            intent.getStringExtra(EXTRA_TASK_ID)
+            resolvedTaskId ?: intent.getStringExtra(EXTRA_TASK_ID)
                 ?: snapshot.tasks.firstOrNull { task ->
-                    !task.isArchived &&
+                    !task.isArchived && task.deletedAt == null &&
                         (intent.getStringExtra(EXTRA_PROJECT_ID) == null || task.projectId == intent.getStringExtra(EXTRA_PROJECT_ID)) &&
                         snapshot.projects.any { project ->
-                            project.id == task.projectId && !project.isArchived && !project.isPaused
+                            project.id == task.projectId && !project.isArchived && !project.isPaused && project.deletedAt == null
                         } &&
                         isTaskDue(task, LocalDate.now())
                 }?.id
@@ -135,33 +182,12 @@ class ReminderReceiver : BroadcastReceiver() {
     }
 
     private fun calculateProgress(snapshot: BackupSnapshot, projectId: String?): Progress {
-        val today = LocalDate.now()
-        val activeProjects = snapshot.projects.filter { !it.isArchived && !it.isPaused }
-            .filter { projectId == null || it.id == projectId }.map(ProjectEntity::id).toSet()
-        val actions = mutableListOf<Boolean>()
-        val requiredTasks = snapshot.tasks.filter { it.isRequired && !it.isArchived && it.projectId in activeProjects }
-        requiredTasks.filter { task -> isTaskDue(task, today) || isInitialLearningCompleted(task, today) }.forEach { task ->
-            val reviewed = snapshot.reviewLogs.any { it.taskId == task.id && it.reviewedOn == today.toString() }
-            val initiallyLearned = isInitialLearningCompleted(task, today)
-            actions += reviewed || initiallyLearned
-        }
-        val activePlans = snapshot.readingPlans.filter { plan ->
-            val startsOnOrBeforeToday = runCatching { LocalDate.parse(plan.startDate) <= today }.getOrDefault(true)
-            !plan.isArchived && !plan.isPaused && plan.projectId in activeProjects &&
-                startsOnOrBeforeToday &&
-                (plan.currentPage < plan.totalPages || snapshot.pageLogs.any { it.planId == plan.id && it.localDate == today.toString() })
-        }
-        activePlans.forEach { plan ->
-            val target = snapshot.readingTargets.firstOrNull { it.planId == plan.id && it.localDate == today.toString() }?.targetPages ?: plan.dailyTarget
-            val pages = snapshot.pageLogs.filter { it.planId == plan.id && it.localDate == today.toString() }.sumOf(PageLogEntity::pagesRead)
-            actions += pages >= target
-        }
-        if (projectId == null) {
-            snapshot.todos.filter { it.isRequired && !it.isArchived && isTodoDue(it, today) }.forEach { todo ->
-                actions += todo.completedDates.split(',').any { it == today.toString() }
-            }
-        }
-        return Progress(completed = actions.count { it }, total = actions.size)
+        val summary = DailyProgressCalculator().calculate(
+            input = DailyProgressMapper.from(snapshot),
+            date = LocalDate.now(),
+            projectId = projectId,
+        )
+        return Progress(completed = summary.completedRequired, total = summary.totalRequired)
     }
 
     private fun isTaskDue(task: com.mymoss.learnlist.data.local.LearningTaskEntity, date: LocalDate): Boolean {
@@ -169,23 +195,6 @@ class ReminderReceiver : BroadcastReceiver() {
         if (!task.hasLearned) return true
         return task.nextReviewDate?.let { runCatching { LocalDate.parse(it) <= date }.getOrDefault(true) } ?: true
     }
-
-    private fun isInitialLearningCompleted(task: com.mymoss.learnlist.data.local.LearningTaskEntity, date: LocalDate): Boolean =
-        task.hasLearned && task.updatedAt.toLocalDate() == date && task.nextReviewDate == date.plusDays(1).toString()
-
-    private fun isTodoDue(todo: TodoEntity, date: LocalDate): Boolean {
-        val rule = runCatching { TodoRepeatRule.valueOf(todo.repeatRule) }.getOrDefault(TodoRepeatRule.ONCE)
-        val base = todo.dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-        val custom = todo.customRepeatDays.split(',').mapNotNull { token ->
-            token.trim().toIntOrNull()?.takeIf { it in 1..7 }?.let { runCatching { DayOfWeek.of(it) }.getOrNull() }
-        }.toSet()
-        val completed = todo.completedDates.split(',').mapNotNull { token ->
-            runCatching { LocalDate.parse(token) }.getOrNull()
-        }.toSet()
-        return TodoRecurrence.isDue(rule, base, date, customDays = custom, completedDates = completed)
-    }
-
-    private fun Long.toLocalDate(): LocalDate = java.time.Instant.ofEpochMilli(this).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
 
     private fun actionIntent(context: Context, action: String, taskId: String, notificationId: Int, reminderId: String?): PendingIntent = PendingIntent.getBroadcast(
         context,
@@ -195,11 +204,6 @@ class ReminderReceiver : BroadcastReceiver() {
             .putExtra(EXTRA_REMINDER_ID, reminderId),
         pendingFlags(),
     )
-
-    private fun createChannel(context: Context) {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "学习提醒", NotificationManager.IMPORTANCE_DEFAULT))
-    }
 
     private fun pendingFlags(): Int = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
 
@@ -213,7 +217,17 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_KIND = "kind"
         const val EXTRA_TITLE = "title"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
-        const val CHANNEL_ID = "study_reminders"
+        const val CHANNEL_ID = "study_reminders_feedback"
+
+        fun ensureNotificationChannel(context: Context) {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "学习提醒", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    setSound(null, null)
+                    enableVibration(false)
+                },
+            )
+        }
     }
 }
 

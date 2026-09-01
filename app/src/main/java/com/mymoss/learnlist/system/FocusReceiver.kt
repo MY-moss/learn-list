@@ -1,20 +1,13 @@
 package com.mymoss.learnlist.system
 
-import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.mymoss.learnlist.LearnListApplication
-import com.mymoss.learnlist.MainActivity
-import com.mymoss.learnlist.R
 import com.mymoss.learnlist.data.SettingsRepository
+import com.mymoss.learnlist.domain.FocusPhaseType
+import com.mymoss.learnlist.domain.PomodoroCycle
+import com.mymoss.learnlist.domain.PomodoroPhase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -32,60 +25,48 @@ class FocusReceiver : BroadcastReceiver() {
                 val startedAt = settings.focusStartedAtEpochMillis
                 if (endAt != null && startedAt != null && endAt <= System.currentTimeMillis()) {
                     val plannedMinutes = settings.focusPlannedMinutes.coerceIn(1, 180)
-                    application.repository.recordFocusSessionIfNeeded(
-                        plannedMinutes = plannedMinutes,
-                        actualMinutes = plannedMinutes,
-                        startedAt = startedAt,
-                    )
-                    settingsRepository.update { current ->
-                        if (current.focusStartedAtEpochMillis == startedAt && current.focusEndAtEpochMillis == endAt) {
-                            current.copy(focusStartedAtEpochMillis = null, focusEndAtEpochMillis = null)
-                        } else {
-                            current
+                    if (settingsRepository.clearFocusTimerIfMatches(startedAt, endAt)) {
+                        val actualSeconds = (settings.focusAccumulatedSeconds + plannedMinutes * 60).coerceIn(0, plannedMinutes * 60)
+                        val phase = runCatching { FocusPhaseType.valueOf(settings.focusPhase) }.getOrDefault(FocusPhaseType.WORK)
+                        if (PomodoroCycle.isCountedAsFocus(phase)) {
+                            application.repository.recordFocusSessionIfNeeded(
+                                plannedMinutes = plannedMinutes,
+                                actualMinutes = actualSeconds / 60,
+                                actualSeconds = actualSeconds,
+                                projectId = settings.focusProjectId,
+                                taskId = settings.focusTaskId,
+                                startedAt = settings.focusSessionStartedAtEpochMillis ?: startedAt,
+                                phase = phase.name,
+                                round = settings.focusRound,
+                            )
                         }
+                        val next = PomodoroCycle.afterCompleted(PomodoroPhase(phase, settings.focusRound, plannedMinutes * 60))
+                        val autoStart = settings.focusAutoStartBreaks
+                        val nextStart = if (autoStart) System.currentTimeMillis() else null
+                        val nextEnd = nextStart?.plus(next.totalSeconds * 1000L)
+                        settingsRepository.update {
+                            it.copy(
+                                focusStartedAtEpochMillis = nextStart,
+                                focusEndAtEpochMillis = nextEnd,
+                                focusSessionStartedAtEpochMillis = if (next.type == FocusPhaseType.WORK && nextStart != null) nextStart else null,
+                                focusPlannedMinutes = next.totalSeconds / 60,
+                                focusRemainingSeconds = next.totalSeconds,
+                                focusAccumulatedSeconds = 0,
+                                focusPaused = false,
+                                focusPhase = next.type.name,
+                                focusRound = next.round,
+                            )
+                        }
+                        if (nextEnd != null) {
+                            FocusTimerScheduler(context.applicationContext).schedule(nextEnd)
+                            FocusTimerService.start(context.applicationContext, nextStart, nextEnd, next.totalSeconds / 60, next.type.name, next.round)
+                        }
+                        FeedbackManager.play(context.applicationContext, settings, FeedbackManager.FeedbackContext.FOCUS)
+                        FocusTimerService.postCompletionNotification(context.applicationContext, plannedMinutes, phase.name)
                     }
-                    postNotification(context.applicationContext, plannedMinutes)
                 }
             }
             pendingResult.finish()
         }
     }
-
-    private fun postNotification(context: Context, plannedMinutes: Int) {
-        if (FocusBuildPermission.canPost(context)) {
-            val manager = context.getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(
-                NotificationChannel(ReminderReceiver.CHANNEL_ID, "学习提醒", NotificationManager.IMPORTANCE_DEFAULT),
-            )
-            val openIntent = PendingIntent.getActivity(
-                context,
-                NOTIFICATION_ID,
-                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val notification = NotificationCompat.Builder(context, ReminderReceiver.CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("专注完成")
-                .setContentText("${plannedMinutes.coerceAtLeast(1)} 分钟专注已结束，休息一下吧")
-                .setContentIntent(openIntent)
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .build()
-            try {
-                NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
-            } catch (_: SecurityException) {
-                // Notification permission can be revoked between the check and the post call.
-            }
-        }
-    }
-
-    private companion object {
-        const val NOTIFICATION_ID = 2001
-    }
-}
-
-private object FocusBuildPermission {
-    fun canPost(context: Context): Boolean =
-        android.os.Build.VERSION.SDK_INT < 33 ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
