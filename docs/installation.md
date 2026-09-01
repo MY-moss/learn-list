@@ -2,7 +2,7 @@
 
 ## 安装首版 APK
 
-推荐下载已签名的稳定版：[v0.2.4 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.2.4)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.2.4/learn-list-v0.2.4.apk)；旁边的 `.sha256` 文件可用于校验完整性。
+推荐下载已签名的稳定版：[v0.2.5 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.2.5)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.2.5/learn-list-v0.2.5.apk)；旁边的 `.sha256` 文件可用于校验完整性。
 
 1. 在手机上允许文件管理器安装来自此来源的应用。
 2. 将 Release APK 或 `app/build/outputs/apk/debug/app-debug.apk` 传到手机并打开。
@@ -20,6 +20,8 @@ Debug APK 只适合自用测试。正式覆盖升级必须使用同一把 Releas
 - 为阅读计划填写总页数和每日页数；填写截止日后可以使用“剩余页数均摊”。
 - 在“设置 → 固定提醒”添加每日进度或项目提醒，并按需要选择星期和安静时段。
 - 新建待办时可填写一次性到期日，或为重复待办填写开始日期。
+- 首次打开会展示使用引导；之后可在“设置 → 第一次使用”重新查看。
+- 更新中心会显示连接、下载百分比/大小、SHA-256 校验和系统安装器准备进度。
 - Android 13 及以上若拒绝通知权限，复习仍可在应用内完成，但系统提醒不会显示。
 
 ## 数据备份
