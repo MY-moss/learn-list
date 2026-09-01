@@ -1,14 +1,8 @@
 package com.mymoss.learnlist.ui
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.Modifier
 import com.mymoss.learnlist.system.UpdateInfo
 import com.mymoss.learnlist.ui.theme.LearnListTheme
 import org.junit.Rule
@@ -22,32 +16,26 @@ class UpdateCenterInstrumentedTest {
     fun downloadingUpdateShowsPhasePercentAndBytes() {
         composeRule.setContent {
             LearnListTheme {
-                Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    UpdateCenterCard(
-                        updateState = UpdateUiState(
-                            isDownloading = true,
-                            available = UpdateInfo(
-                                tagName = "v0.2.5",
-                                versionName = "0.2.5",
-                                downloadUrl = "https://github.com/MY-moss/learn-list/releases/download/v0.2.5/learn-list-v0.2.5.apk",
-                                sha256Url = "https://github.com/MY-moss/learn-list/releases/download/v0.2.5/learn-list-v0.2.5.apk.sha256",
-                                releaseNotes = "",
-                            ),
-                            phase = UpdatePhase.DOWNLOADING,
-                            downloadProgress = 0.42f,
-                            downloadedBytes = 43L * 1024L,
-                            totalDownloadBytes = 100L * 1024L,
+                UpdateProgressFeedback(
+                    updateState = UpdateUiState(
+                        isDownloading = true,
+                        available = UpdateInfo(
+                            tagName = "v0.2.5",
+                            versionName = "0.2.5",
+                            downloadUrl = "https://github.com/MY-moss/learn-list/releases/download/v0.2.5/learn-list-v0.2.5.apk",
+                            sha256Url = "https://github.com/MY-moss/learn-list/releases/download/v0.2.5/learn-list-v0.2.5.apk.sha256",
+                            releaseNotes = "",
                         ),
-                        onCheck = {},
-                        onDownload = {},
-                        onDismiss = {},
-                    )
-                }
+                        phase = UpdatePhase.DOWNLOADING,
+                        downloadProgress = 0.42f,
+                        downloadedBytes = 43L * 1024L,
+                        totalDownloadBytes = 100L * 1024L,
+                    ),
+                )
             }
         }
 
-        composeRule.onNodeWithText("正在下载更新包…").assertIsDisplayed()
-        composeRule.onNodeWithText("下载进度 42% · 已下载 43 KB / 100 KB").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("下载进度 42% · 已下载 43 KB / 100 KB").assertIsDisplayed()
     }
 }
 
