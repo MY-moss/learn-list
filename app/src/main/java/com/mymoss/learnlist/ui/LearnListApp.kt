@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -92,6 +93,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -189,6 +193,10 @@ enum class AppTab(val label: String, val icon: androidx.compose.ui.graphics.vect
     STATS("统计", Icons.Default.BarChart),
     SETTINGS("设置", Icons.Default.Settings),
 }
+
+internal const val RAIL_NAVIGATION_BREAKPOINT_DP = 600
+
+internal fun usesRailNavigation(widthDp: Int): Boolean = widthDp >= RAIL_NAVIGATION_BREAKPOINT_DP
 
 enum class UpdatePhase {
     IDLE,
@@ -303,118 +311,150 @@ fun LearnListApp(
         }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            Surface(color = MaterialTheme.colorScheme.background) {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 760.dp)
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    text = "LEARN / LIST",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 2.sp,
-                                )
-                                Text(selectedTab.label, style = MaterialTheme.typography.headlineSmall)
-                            }
-                            if (updateState.available != null) {
-                                AssistChip(
-                                    onClick = onDownloadUpdate,
-                                    enabled = !updateState.isDownloading,
-                                    label = {
-                                        Text(
-                                            if (!updateState.isDownloading) "有更新"
-                                            else updateState.downloadProgress?.let { "${(it * 100).roundToInt()}%" } ?: "更新中",
-                                        )
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                )
-                            }
-                            if (selectedTab == AppTab.TODAY) {
-                                IconButton(onClick = onRequestNotifications) {
-                                    Icon(Icons.Default.Notifications, contentDescription = "通知权限")
+    val navigateToTab: (AppTab) -> Unit = { tab ->
+        navController.navigate(tab.name) {
+            popUpTo(AppTab.TODAY.name) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val useRailNavigation = usesRailNavigation(maxWidth.value.roundToInt())
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
+                Surface(color = MaterialTheme.colorScheme.background) {
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .widthIn(max = 760.dp)
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        text = "LEARN / LIST",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 2.sp,
+                                    )
+                                    Text(selectedTab.label, style = MaterialTheme.typography.headlineSmall)
+                                }
+                                if (updateState.available != null) {
+                                    AssistChip(
+                                        onClick = onDownloadUpdate,
+                                        enabled = !updateState.isDownloading,
+                                        label = {
+                                            Text(
+                                                if (!updateState.isDownloading) "有更新"
+                                                else updateState.downloadProgress?.let { "${(it * 100).roundToInt()}%" } ?: "更新中",
+                                            )
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                    )
+                                }
+                                if (selectedTab == AppTab.TODAY) {
+                                    IconButton(onClick = onRequestNotifications) {
+                                        Icon(Icons.Default.Notifications, contentDescription = "通知权限")
+                                    }
                                 }
                             }
+                            if (selectedTab == AppTab.TODAY) {
+                                Text(
+                                    text = "把今天过好，剩下的交给节奏。",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 13.sp,
+                                )
+                            }
                         }
-                        if (selectedTab == AppTab.TODAY) {
-                            Text(
-                                text = "把今天过好，剩下的交给节奏。",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 13.sp,
+                    }
+                }
+            },
+            snackbarHost = { SnackbarHost(snackbars) },
+            floatingActionButton = {
+                when (selectedTab) {
+                    AppTab.LEARN -> FloatingActionButton(
+                        onClick = { showProjectDialog = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) { Icon(Icons.Default.Add, "新建项目") }
+                    AppTab.TODO -> FloatingActionButton(
+                        onClick = { showTodoDialog = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) { Icon(Icons.Default.Add, "新建待办") }
+                    AppTab.STATS -> FloatingActionButton(
+                        onClick = { showGoalDialog = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) { Icon(Icons.Default.Add, "新建目标") }
+                    else -> Unit
+                }
+            },
+            bottomBar = {
+                if (!useRailNavigation) {
+                    NavigationBar(
+                        modifier = Modifier.navigationBarsPadding(),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                    ) {
+                        AppTab.entries.forEach { tab ->
+                            NavigationBarItem(
+                                selected = selectedTab == tab,
+                                onClick = { navigateToTab(tab) },
+                                icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                label = { Text(tab.label) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
                             )
                         }
                     }
                 }
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbars) },
-        floatingActionButton = {
-            when (selectedTab) {
-                AppTab.LEARN -> FloatingActionButton(
-                    onClick = { showProjectDialog = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) { Icon(Icons.Default.Add, "新建项目") }
-                AppTab.TODO -> FloatingActionButton(
-                    onClick = { showTodoDialog = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) { Icon(Icons.Default.Add, "新建待办") }
-                AppTab.STATS -> FloatingActionButton(
-                    onClick = { showGoalDialog = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) { Icon(Icons.Default.Add, "新建目标") }
-                else -> Unit
-            }
-        },
-        bottomBar = {
-            NavigationBar(
-                modifier = Modifier.navigationBarsPadding(),
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp,
-            ) {
-                AppTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = {
-                            navController.navigate(tab.name) {
-                                popUpTo(AppTab.TODAY.name) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
-                    )
+            },
+        ) { padding ->
+            Row(Modifier.fillMaxSize()) {
+                if (useRailNavigation) {
+                    NavigationRail(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .navigationBarsPadding(),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ) {
+                        AppTab.entries.forEach { tab ->
+                            NavigationRailItem(
+                                selected = selectedTab == tab,
+                                onClick = { navigateToTab(tab) },
+                                icon = { Icon(tab.icon, contentDescription = tab.label) },
+                                label = { Text(tab.label) },
+                                alwaysShowLabel = true,
+                                colors = NavigationRailItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                            )
+                        }
+                    }
                 }
-            }
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-            NavHost(
-                navController = navController,
-                startDestination = AppTab.TODAY.name,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 760.dp)
-                    .fillMaxHeight(),
-            ) {
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+                    NavHost(
+                        navController = navController,
+                        startDestination = AppTab.TODAY.name,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 760.dp)
+                            .fillMaxHeight(),
+                    ) {
             composable(AppTab.TODAY.name) {
                 TodayScreen(state, padding, currentDay, deviceToday, { followsToday = it == deviceToday; currentDay = it }, viewModel, { showReviewDialog = it }, { showCorrectionDialog = it }, { showPagesDialog = it }, { showReadingAdjustmentDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget, reviewBatchSize, appClock.zone)
             }
@@ -525,6 +565,8 @@ fun LearnListApp(
             }
         }
     }
+    }
+}
 
     if (showProjectDialog) {
         ProjectDialog(onDismiss = { showProjectDialog = false }) { title, type, description, tags ->
