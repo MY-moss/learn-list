@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -356,6 +357,7 @@ fun LearnListApp(
                     onRequestExactAlarms = onRequestExactAlarms,
                     onNewReminder = viewModel::addReminder,
                     onSetReminderEnabled = viewModel::setReminderEnabled,
+                    onDeleteReminder = viewModel::deleteReminder,
                     restDays = state.restDays,
                     onSetRestDays = viewModel::setRestDays,
                     onRestoreProject = viewModel::restoreProject,
@@ -885,11 +887,13 @@ private fun SettingsScreen(
     onRequestExactAlarms: () -> Unit,
     onNewReminder: (String?, String, String, String, String, String) -> Unit,
     onSetReminderEnabled: (String, Boolean) -> Unit,
+    onDeleteReminder: (String) -> Unit,
     restDays: Set<DayOfWeek>,
     onSetRestDays: (Set<DayOfWeek>) -> Unit,
     onRestoreProject: (String) -> Unit,
 ) {
     var showReminderDialog by rememberSaveable { mutableStateOf(false) }
+    var reminderToDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -938,6 +942,9 @@ private fun SettingsScreen(
                                     Text("${reminder.repeatDays.replace(',', '、')} · 安静 ${formatMinutes(reminder.quietStartMinutes)}—${formatMinutes(reminder.quietEndMinutes)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 TextButton(onClick = { onSetReminderEnabled(reminder.id, !reminder.enabled) }) { Text(if (reminder.enabled) "停用" else "启用") }
+                                IconButton(onClick = { reminderToDeleteId = reminder.id }) {
+                                    Icon(Icons.Default.Delete, "删除提醒", tint = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                     }
@@ -986,6 +993,21 @@ private fun SettingsScreen(
     }
     if (showReminderDialog) {
         ReminderDialog(projects, { showReminderDialog = false }) { projectId, kind, time, quietStart, quietEnd, repeatDays -> onNewReminder(projectId, kind, time, quietStart, quietEnd, repeatDays); showReminderDialog = false }
+    }
+    val reminderToDelete = reminderToDeleteId?.let { id -> state.reminders.firstOrNull { it.id == id } }
+    if (reminderToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { reminderToDeleteId = null },
+            title = { Text("删除这条提醒？") },
+            text = { Text("${reminderToDelete.timeMinutes / 60}:${(reminderToDelete.timeMinutes % 60).toString().padStart(2, '0')} 的提醒将不再触发。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteReminder(reminderToDelete.id)
+                    reminderToDeleteId = null
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { reminderToDeleteId = null }) { Text("取消") } },
+        )
     }
 }
 
