@@ -1310,24 +1310,20 @@ internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, o
                 } else {
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
                 }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (progress == null) "下载进度：正在获取文件大小"
-                        else "下载进度 ${((progress * 100).roundToInt())}%",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
                 Text(
                     buildString {
-                        append("已下载 ")
+                        if (progress == null) append("下载进度：正在获取文件大小")
+                        else append("下载进度 ${((progress * 100).roundToInt())}%")
+                        append(" · 已下载 ")
                         append(formatBytes(updateState.downloadedBytes))
                         updateState.totalDownloadBytes?.let { append(" / "); append(formatBytes(it)) }
                     },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
