@@ -357,6 +357,37 @@ class LearnListViewModel(
 
     fun addSummaryReminder(timeText: String) = addReminder(null, "SUMMARY", timeText)
 
+    fun updateReminder(
+        id: String,
+        projectId: String?,
+        kind: String,
+        timeText: String,
+        quietStartText: String = "22:00",
+        quietEndText: String = "07:00",
+        repeatDaysText: String = "1,2,3,4,5,6,7",
+        onResult: (Boolean) -> Unit = {},
+    ) = action(onResult) {
+        val time = java.time.LocalTime.parse(timeText)
+        val quietStart = java.time.LocalTime.parse(quietStartText)
+        val quietEnd = java.time.LocalTime.parse(quietEndText)
+        val repeatDays = repeatDaysText.split(',')
+            .mapNotNull { it.trim().toIntOrNull()?.takeIf { day -> day in 1..7 } }
+            .distinct()
+            .sorted()
+            .joinToString(",")
+        require(repeatDays.isNotBlank()) { "至少选择一天提醒" }
+        repository.updateReminder(
+            reminderId = id,
+            projectId = projectId,
+            kind = kind,
+            timeMinutes = time.hour * 60 + time.minute,
+            repeatDays = repeatDays,
+            quietStartMinutes = quietStart.hour * 60 + quietStart.minute,
+            quietEndMinutes = quietEnd.hour * 60 + quietEnd.minute,
+        )
+        say("提醒已保存")
+    }
+
     fun setReminderEnabled(id: String, enabled: Boolean) = action {
         repository.setReminderEnabled(id, enabled)
         say(if (enabled) "提醒已启用" else "提醒已停用")

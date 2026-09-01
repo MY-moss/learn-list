@@ -489,6 +489,63 @@ class LearnListRepository(
         quietStartMinutes: Int? = null,
         quietEndMinutes: Int? = null,
     ): ReminderEntity {
+        val normalizedDays = validateReminderConfiguration(
+            projectId = projectId,
+            kind = kind,
+            timeMinutes = timeMinutes,
+            repeatDays = repeatDays,
+            quietStartMinutes = quietStartMinutes,
+            quietEndMinutes = quietEndMinutes,
+        )
+        val now = nowMillis()
+        val reminder = ReminderEntity(
+            id = newId(), projectId = projectId, kind = kind,
+            timeMinutes = timeMinutes, repeatDays = normalizedDays, enabled = true,
+            quietStartMinutes = quietStartMinutes, quietEndMinutes = quietEndMinutes,
+            createdAt = now, updatedAt = now,
+        )
+        dao.insertReminder(reminder)
+        return reminder
+    }
+
+    suspend fun updateReminder(
+        reminderId: String,
+        projectId: String?,
+        kind: String,
+        timeMinutes: Int,
+        repeatDays: String = "1,2,3,4,5,6,7",
+        quietStartMinutes: Int? = null,
+        quietEndMinutes: Int? = null,
+    ): ReminderEntity = database.withTransaction {
+        val normalizedDays = validateReminderConfiguration(
+            projectId = projectId,
+            kind = kind,
+            timeMinutes = timeMinutes,
+            repeatDays = repeatDays,
+            quietStartMinutes = quietStartMinutes,
+            quietEndMinutes = quietEndMinutes,
+        )
+        val current = dao.getAllReminders().firstOrNull { it.id == reminderId }
+            ?: error("提醒不存在")
+        current.copy(
+            projectId = projectId,
+            kind = kind,
+            timeMinutes = timeMinutes,
+            repeatDays = normalizedDays,
+            quietStartMinutes = quietStartMinutes,
+            quietEndMinutes = quietEndMinutes,
+            updatedAt = nowMillis(),
+        ).also { dao.updateReminder(it) }
+    }
+
+    private suspend fun validateReminderConfiguration(
+        projectId: String?,
+        kind: String,
+        timeMinutes: Int,
+        repeatDays: String,
+        quietStartMinutes: Int?,
+        quietEndMinutes: Int?,
+    ): String {
         require(timeMinutes in 0..1439)
         require(kind == "SUMMARY" || kind == "PROJECT") { "提醒类型无效" }
         require(kind != "PROJECT" || !projectId.isNullOrBlank()) { "项目提醒必须选择项目" }
@@ -502,15 +559,7 @@ class LearnListRepository(
         require(normalizedDays.isNotBlank()) { "至少选择一天提醒" }
         require(quietStartMinutes == null || quietStartMinutes in 0..1439) { "安静开始时间无效" }
         require(quietEndMinutes == null || quietEndMinutes in 0..1439) { "安静结束时间无效" }
-        val now = nowMillis()
-        val reminder = ReminderEntity(
-            id = newId(), projectId = projectId, kind = kind,
-            timeMinutes = timeMinutes, repeatDays = normalizedDays, enabled = true,
-            quietStartMinutes = quietStartMinutes, quietEndMinutes = quietEndMinutes,
-            createdAt = now, updatedAt = now,
-        )
-        dao.insertReminder(reminder)
-        return reminder
+        return normalizedDays
     }
 
     suspend fun updateProject(

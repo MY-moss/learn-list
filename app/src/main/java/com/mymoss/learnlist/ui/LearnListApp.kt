@@ -150,6 +150,7 @@ import com.mymoss.learnlist.data.local.ProjectEntity
 import com.mymoss.learnlist.data.local.ReadingPlanEntity
 import com.mymoss.learnlist.data.local.ReadingAdjustmentEntity
 import com.mymoss.learnlist.data.local.ReadingTargetEntity
+import com.mymoss.learnlist.data.local.ReminderEntity
 import com.mymoss.learnlist.data.local.TodoEntity
 import com.mymoss.learnlist.domain.DailyProgressCalculator
 import com.mymoss.learnlist.domain.DailyProgressSummary
@@ -497,6 +498,9 @@ fun LearnListApp(
                     onReplayOnboarding = { showOnboarding = true },
                     onNewReminder = { projectId, kind, time, quietStart, quietEnd, repeatDays, onResult ->
                         viewModel.addReminder(projectId, kind, time, quietStart, quietEnd, repeatDays, onResult)
+                    },
+                    onUpdateReminder = { id, projectId, kind, time, quietStart, quietEnd, repeatDays, onResult ->
+                        viewModel.updateReminder(id, projectId, kind, time, quietStart, quietEnd, repeatDays, onResult)
                     },
                     onSetReminderEnabled = viewModel::setReminderEnabled,
                     onDeleteReminder = viewModel::deleteReminder,
@@ -877,6 +881,9 @@ private fun TodayScreen(
     val focusMinutes = state.focusSessions.filter { it.activityDate(zoneId) == today }.sumOf { it.actualSeconds / 60 }
     val percent = progress.percent
     var showHistoryCalendar by rememberSaveable { mutableStateOf(false) }
+    var requiredActionsExpanded by rememberSaveable { mutableStateOf(true) }
+    var readingExpanded by rememberSaveable { mutableStateOf(true) }
+    var todoExpanded by rememberSaveable { mutableStateOf(true) }
 
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 28.dp),
@@ -956,28 +963,34 @@ private fun TodayScreen(
                 }
             }
         }
-        item { SectionHeader("今天先做这些", "建议先完成 $reviewBatchSize 项；所有逾期复习都会列出") }
-        if (dueTasks.isEmpty()) item { EmptyCard("没有积压复习。去学习页添加一个新任务吧。", Icons.Default.AutoAwesome) }
-        items(dueTasks, key = { it.id }) { task ->
-            ReviewTaskCard(task, { onReview(task) }, { viewModel.initialLearn(task.id, today) }, compact = true, onCorrect = { onCorrectReview(task) })
+        item { CollapsibleSectionHeader("今天先做这些", "建议先完成 $reviewBatchSize 项；所有逾期复习都会列出", requiredActionsExpanded) { requiredActionsExpanded = it } }
+        if (requiredActionsExpanded) {
+            if (dueTasks.isEmpty()) item { EmptyCard("没有积压复习。去学习页添加一个新任务吧。", Icons.Default.AutoAwesome) }
+            items(dueTasks, key = { it.id }) { task ->
+                ReviewTaskCard(task, { onReview(task) }, { viewModel.initialLearn(task.id, today) }, compact = true, onCorrect = { onCorrectReview(task) })
+            }
         }
-        item { SectionHeader("阅读进度", "今天达标就算完成一项") }
-        if (readingPlans.isEmpty()) item { EmptyCard("还没有进行中的阅读计划。", Icons.AutoMirrored.Filled.MenuBook) }
-        items(readingPlans, key = { it.id }) { plan ->
-            ReadingPlanCard(
-                plan = plan,
-                pagesToday = readingPagesOn(state.pageLogs, state.readingAdjustments, plan.id, today),
-                targetPages = state.readingTargets.targetFor(plan.id, today, plan.dailyTarget),
-                onLog = { onPages(plan) },
-                onAdjust = { onAdjustReading(plan) },
-                onRebalance = { onRebalance(plan.id) },
-                onAdjustTarget = { onAdjustTarget(plan.id, it) },
-            )
+        item { CollapsibleSectionHeader("阅读进度", "今天达标就算完成一项", readingExpanded) { readingExpanded = it } }
+        if (readingExpanded) {
+            if (readingPlans.isEmpty()) item { EmptyCard("还没有进行中的阅读计划。", Icons.AutoMirrored.Filled.MenuBook) }
+            items(readingPlans, key = { it.id }) { plan ->
+                ReadingPlanCard(
+                    plan = plan,
+                    pagesToday = readingPagesOn(state.pageLogs, state.readingAdjustments, plan.id, today),
+                    targetPages = state.readingTargets.targetFor(plan.id, today, plan.dailyTarget),
+                    onLog = { onPages(plan) },
+                    onAdjust = { onAdjustReading(plan) },
+                    onRebalance = { onRebalance(plan.id) },
+                    onAdjustTarget = { onAdjustTarget(plan.id, it) },
+                )
+            }
         }
-        item { SectionHeader("今日待办", "重复规则会自动带到正确的日期") }
-        if (dueTodos.isEmpty()) item { EmptyCard("今天没有到期待办，给自己留一点空间。", Icons.Default.CheckCircleOutline) }
-        items(dueTodos, key = { it.id }) { todo ->
-            TodoCard(todo, today, onToggle = { viewModel.toggleTodo(todo.id, today, todo.isCompletedOn(today)) })
+        item { CollapsibleSectionHeader("今日待办", "重复规则会自动带到正确的日期", todoExpanded) { todoExpanded = it } }
+        if (todoExpanded) {
+            if (dueTodos.isEmpty()) item { EmptyCard("今天没有到期待办，给自己留一点空间。", Icons.Default.CheckCircleOutline) }
+            items(dueTodos, key = { it.id }) { todo ->
+                TodoCard(todo, today, onToggle = { viewModel.toggleTodo(todo.id, today, todo.isCompletedOn(today)) })
+            }
         }
     }
     if (showHistoryCalendar) {
@@ -1438,6 +1451,7 @@ private fun FocusScreen(
         if (selectedTaskId.isNotBlank() && selectableTasks.none { it.id == selectedTaskId }) selectedTaskId = ""
     }
     val progress = if (phaseActive && state.focusPlannedMinutes > 0) state.focusRemainingSeconds / (state.focusPlannedMinutes * 60f) else 0f
+    var recentFocusExpanded by rememberSaveable { mutableStateOf(true) }
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -1511,15 +1525,17 @@ private fun FocusScreen(
                 }
             }
         }
-        item { SectionHeader("最近专注", "完成后自动计入统计") }
-        if (state.focusSessions.isEmpty()) item { EmptyCard("完成第一段番茄钟后，这里会出现你的专注记录。", Icons.Default.Timer) }
-        items(state.focusSessions.take(20), key = { it.id }) { session ->
-            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) { Icon(Icons.Default.Timer, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(19.dp)) }
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) { Text("${session.actualMinutes} 分钟专注", fontWeight = FontWeight.SemiBold); Text(session.startedAt.toLocalDate(zoneId).toString(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
-                    Text(session.status, color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
+        item { CollapsibleSectionHeader("最近专注", "完成后自动计入统计", recentFocusExpanded) { recentFocusExpanded = it } }
+        if (recentFocusExpanded) {
+            if (state.focusSessions.isEmpty()) item { EmptyCard("完成第一段番茄钟后，这里会出现你的专注记录。", Icons.Default.Timer) }
+            items(state.focusSessions.take(20), key = { it.id }) { session ->
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) { Icon(Icons.Default.Timer, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(19.dp)) }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) { Text("${session.actualMinutes} 分钟专注", fontWeight = FontWeight.SemiBold); Text(session.startedAt.toLocalDate(zoneId).toString(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
+                        Text(session.status, color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
+                    }
                 }
             }
         }
@@ -1541,6 +1557,10 @@ private fun StatsScreen(
     zoneId: ZoneId,
     clock: Clock,
 ) {
+    var heatMapExpanded by rememberSaveable { mutableStateOf(true) }
+    var trendExpanded by rememberSaveable { mutableStateOf(true) }
+    var goalsExpanded by rememberSaveable { mutableStateOf(true) }
+    var countdownExpanded by rememberSaveable { mutableStateOf(true) }
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -1562,19 +1582,43 @@ private fun StatsScreen(
             }
         }
         item {
-            SectionHeader("最近 28 天", "按单位分别查看复习、阅读、专注和待办")
-            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricHeatMap(state, today, zoneId) } }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CollapsibleSectionHeader("最近 28 天", "按单位分别查看复习、阅读、专注和待办", heatMapExpanded) { heatMapExpanded = it }
+                if (heatMapExpanded) Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricHeatMap(state, today, zoneId) } }
+            }
         }
         item {
-            SectionHeader("最近 7 天", "每条趋势保持自己的计量单位")
-            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricTrendChart(state, today, zoneId) } }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CollapsibleSectionHeader("最近 7 天", "每条趋势保持自己的计量单位", trendExpanded) { trendExpanded = it }
+                if (trendExpanded) Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricTrendChart(state, today, zoneId) } }
+            }
         }
-        item { SectionHeader("量化目标", "给想坚持的事一个可见的终点", trailing = { TextButton(onClick = onNewGoal) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Text("新增") } }) }
-        if (state.goals.isEmpty()) item { EmptyCard("例如：每天专注 50 分钟、每周复习 20 项。", Icons.Default.Flag) }
-        items(state.goals, key = { it.id }) { goal -> GoalCard(goal, state, today, zoneId, { onEditGoal(goal) }, { onDeleteGoal(goal.id) }) }
-        item { SectionHeader("倒计时", "考试、截止日或下一次重要事件", trailing = { TextButton(onClick = onNewCountdown) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Text("新增") } }) }
-        if (state.countdowns.isEmpty()) item { EmptyCard("为重要事件留一个提前量。", Icons.Default.CalendarToday) }
-        items(state.countdowns, key = { it.id }) { countdown -> CountdownCard(countdown, { onCompleteCountdown(countdown.id) }, { onEditCountdown(countdown) }, { onDeleteCountdown(countdown.id) }, clock) }
+        item {
+            CollapsibleSectionHeader(
+                text = "量化目标",
+                subtitle = "给想坚持的事一个可见的终点",
+                expanded = goalsExpanded,
+                onExpandedChange = { goalsExpanded = it },
+                trailing = { TextButton(onClick = onNewGoal) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Text("新增") } },
+            )
+        }
+        if (goalsExpanded) {
+            if (state.goals.isEmpty()) item { EmptyCard("例如：每天专注 50 分钟、每周复习 20 项。", Icons.Default.Flag) }
+            items(state.goals, key = { it.id }) { goal -> GoalCard(goal, state, today, zoneId, { onEditGoal(goal) }, { onDeleteGoal(goal.id) }) }
+        }
+        item {
+            CollapsibleSectionHeader(
+                text = "倒计时",
+                subtitle = "考试、截止日或下一次重要事件",
+                expanded = countdownExpanded,
+                onExpandedChange = { countdownExpanded = it },
+                trailing = { TextButton(onClick = onNewCountdown) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Text("新增") } },
+            )
+        }
+        if (countdownExpanded) {
+            if (state.countdowns.isEmpty()) item { EmptyCard("为重要事件留一个提前量。", Icons.Default.CalendarToday) }
+            items(state.countdowns, key = { it.id }) { countdown -> CountdownCard(countdown, { onCompleteCountdown(countdown.id) }, { onEditCountdown(countdown) }, { onDeleteCountdown(countdown.id) }, clock) }
+        }
     }
 }
 
@@ -1614,6 +1658,7 @@ private fun SettingsScreen(
     onClearFeedbackAudio: () -> Unit,
     onReplayOnboarding: () -> Unit,
     onNewReminder: (String?, String, String, String, String, String, (Boolean) -> Unit) -> Unit,
+    onUpdateReminder: (String, String?, String, String, String, String, String, (Boolean) -> Unit) -> Unit,
     onSetReminderEnabled: (String, Boolean) -> Unit,
     onDeleteReminder: (String) -> Unit,
     restDays: Set<DayOfWeek>,
@@ -1634,10 +1679,22 @@ private fun SettingsScreen(
     zoneId: ZoneId,
 ) {
     var showReminderDialog by rememberSaveable { mutableStateOf(false) }
+    var reminderToEditId by rememberSaveable { mutableStateOf<String?>(null) }
     var reminderToDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var firstUseExpanded by rememberSaveable { mutableStateOf(true) }
+    var updateExpanded by rememberSaveable { mutableStateOf(true) }
+    var reviewExpanded by rememberSaveable { mutableStateOf(false) }
+    var remindersExpanded by rememberSaveable { mutableStateOf(true) }
+    var feedbackExpanded by rememberSaveable { mutableStateOf(true) }
+    var focusExpanded by rememberSaveable { mutableStateOf(false) }
+    var safetyExpanded by rememberSaveable { mutableStateOf(true) }
+    var streakExpanded by rememberSaveable { mutableStateOf(false) }
+    var archivedExpanded by rememberSaveable { mutableStateOf(false) }
+    var recycleExpanded by rememberSaveable { mutableStateOf(false) }
     var permanentDeleteTitle by remember { mutableStateOf<String?>(null) }
     var permanentDeleteAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var permanentDeleteAcknowledged by rememberSaveable { mutableStateOf(false) }
+    val reminderToEdit = reminderToEditId?.let { id -> state.reminders.firstOrNull { it.id == id } }
 
     fun requestPermanentDelete(title: String, action: () -> Unit) {
         permanentDeleteTitle = title
@@ -1669,8 +1726,8 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { SectionHeader("第一次使用", "随时回看操作路线") }
-        item {
+        item { CollapsibleSectionHeader("第一次使用", "随时回看操作路线", firstUseExpanded) { firstUseExpanded = it } }
+        if (firstUseExpanded) item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
@@ -1688,12 +1745,12 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { SectionHeader("更新中心", "每 24 小时自动检查一次，也可以现在手动检查") }
-        item {
+        item { CollapsibleSectionHeader("更新中心", "每 24 小时自动检查一次，也可以现在手动检查", updateExpanded) { updateExpanded = it } }
+        if (updateExpanded) item {
             UpdateCenterCard(updateState, onCheckForUpdate, onDownloadUpdate, onInstallUpdate, onCancelUpdate, onDismissUpdate, zoneId)
         }
-        item { SectionHeader("复习节奏", "建议批次只影响提示，不会隐藏逾期内容") }
-        item {
+        item { CollapsibleSectionHeader("复习节奏", "建议批次只影响提示，不会隐藏逾期内容", reviewExpanded) { reviewExpanded = it } }
+        if (reviewExpanded) item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("每日建议先完成多少项", fontWeight = FontWeight.Bold)
@@ -1706,8 +1763,8 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { SectionHeader("固定提醒", "在你习惯的时间，把今天拉回眼前") }
-        item {
+        item { CollapsibleSectionHeader("固定提醒", "在你习惯的时间，把今天拉回眼前", remindersExpanded) { remindersExpanded = it } }
+        if (remindersExpanded) item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1716,7 +1773,7 @@ private fun SettingsScreen(
                         Column(Modifier.weight(1f)) { Text("每日进度和项目提醒", fontWeight = FontWeight.Bold); Text("支持多个固定时间、星期选择和安静时段", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { showReminderDialog = true }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("添加提醒") }
+                        Button(onClick = { reminderToEditId = null; showReminderDialog = true }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("添加提醒") }
                         OutlinedButton(onClick = onRequestNotifications, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Notifications, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("通知权限") }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1731,6 +1788,9 @@ private fun SettingsScreen(
                                     Text("${reminder.timeMinutes / 60}:${(reminder.timeMinutes % 60).toString().padStart(2, '0')} · ${if (reminder.kind == "SUMMARY") "每日总览" else projectTitle ?: "项目提醒"}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (reminder.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text("${reminder.repeatDays.replace(',', '、')} · 安静 ${formatMinutes(reminder.quietStartMinutes)}—${formatMinutes(reminder.quietEndMinutes)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                                IconButton(onClick = { reminderToEditId = reminder.id; showReminderDialog = true }) {
+                                    Icon(Icons.Default.Edit, "编辑提醒")
+                                }
                                 TextButton(onClick = { onSetReminderEnabled(reminder.id, !reminder.enabled) }) { Text(if (reminder.enabled) "停用" else "启用") }
                                 IconButton(onClick = { reminderToDeleteId = reminder.id }) {
                                     Icon(Icons.Default.Delete, "删除提醒", tint = MaterialTheme.colorScheme.error)
@@ -1741,8 +1801,8 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { SectionHeader("提醒反馈", "专注完成、固定提醒和倒计时提醒") }
-        item {
+        item { CollapsibleSectionHeader("提醒反馈", "专注完成、固定提醒和倒计时提醒", feedbackExpanded) { feedbackExpanded = it } }
+        if (feedbackExpanded) item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1797,8 +1857,8 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { SectionHeader("番茄循环", "默认 25 分钟专注 · 5 分钟短休 · 4 轮后 15 分钟长休") }
-        item {
+        item { CollapsibleSectionHeader("番茄循环", "默认 25 分钟专注 · 5 分钟短休 · 4 轮后 15 分钟长休", focusExpanded) { focusExpanded = it } }
+        if (focusExpanded) item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     FeedbackToggleRow(
@@ -1812,8 +1872,8 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { SectionHeader("数据安全", "备份、迁移和恢复都由你掌握") }
-        item {
+        item { CollapsibleSectionHeader("数据安全", "备份、迁移和恢复都由你掌握", safetyExpanded) { safetyExpanded = it } }
+        if (safetyExpanded) item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("加密备份是默认选择。明文导出会在确认后执行，导入前可预览并选择合并或替换。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
@@ -1830,8 +1890,8 @@ private fun SettingsScreen(
                 }
             }
         }
-        item { SectionHeader("连续打卡", "休息日不会打断你的节奏") }
-        item {
+        item { CollapsibleSectionHeader("连续打卡", "休息日不会打断你的节奏", streakExpanded) { streakExpanded = it } }
+        if (streakExpanded) item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("选择固定休息日", fontWeight = FontWeight.Bold)
@@ -1847,8 +1907,8 @@ private fun SettingsScreen(
             }
         }
         if (state.archivedProjects.isNotEmpty()) {
-            item { SectionHeader("已归档项目", "需要时可以恢复") }
-            items(state.archivedProjects, key = { "archived-${it.id}" }) { project ->
+            item { CollapsibleSectionHeader("已归档项目", "需要时可以恢复", archivedExpanded) { archivedExpanded = it } }
+            if (archivedExpanded) items(state.archivedProjects, key = { "archived-${it.id}" }) { project ->
                 Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(project.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
@@ -1858,8 +1918,8 @@ private fun SettingsScreen(
             }
         }
         if (state.deletedProjects.isNotEmpty() || state.deletedTasks.isNotEmpty() || state.deletedReadingPlans.isNotEmpty() || state.deletedTodos.isNotEmpty() || state.deletedGoals.isNotEmpty() || state.deletedCountdowns.isNotEmpty()) {
-            item { SectionHeader("回收站", "移入后可恢复；永久删除不可撤销") }
-            item {
+            item { CollapsibleSectionHeader("回收站", "移入后可恢复；永久删除不可撤销", recycleExpanded) { recycleExpanded = it } }
+            if (recycleExpanded) item {
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         state.deletedProjects.forEach { item -> DeletedRow("项目 · ${item.title}", { onRestoreDeletedProject(item.id) }, { requestPermanentDelete("项目 · ${item.title}") { onPermanentlyDeleteProject(item.id) } }) }
@@ -1898,8 +1958,23 @@ private fun SettingsScreen(
         )
     }
     if (showReminderDialog) {
-        ReminderDialog(projects, { showReminderDialog = false }) { projectId, kind, time, quietStart, quietEnd, repeatDays ->
-            onNewReminder(projectId, kind, time, quietStart, quietEnd, repeatDays) { success -> if (success) showReminderDialog = false }
+        val editingReminder = reminderToEdit
+        ReminderDialog(
+            projects = projects,
+            initialReminder = editingReminder,
+            onDismiss = { showReminderDialog = false; reminderToEditId = null },
+        ) { projectId, kind, time, quietStart, quietEnd, repeatDays ->
+            val onResult: (Boolean) -> Unit = { success ->
+                if (success) {
+                    showReminderDialog = false
+                    reminderToEditId = null
+                }
+            }
+            if (editingReminder == null) {
+                onNewReminder(projectId, kind, time, quietStart, quietEnd, repeatDays, onResult)
+            } else {
+                onUpdateReminder(editingReminder.id, projectId, kind, time, quietStart, quietEnd, repeatDays, onResult)
+            }
         }
     }
     val reminderToDelete = reminderToDeleteId?.let { id -> state.reminders.firstOrNull { it.id == id } }
@@ -2316,6 +2391,49 @@ private fun SectionHeader(text: String, subtitle: String? = null, trailing: (@Co
 }
 
 @Composable
+private fun CollapsibleSectionHeader(
+    text: String,
+    subtitle: String? = null,
+    expanded: Boolean,
+    trailing: (@Composable () -> Unit)? = null,
+    onExpandedChange: (Boolean) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .semantics(mergeDescendants = true) {
+                        role = Role.Button
+                        stateDescription = if (expanded) "已展开，点击收起" else "已收起，点击展开"
+                    }
+                    .clickable { onExpandedChange(!expanded) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(text, style = MaterialTheme.typography.titleMedium)
+                    subtitle?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp) }
+                }
+            }
+            trailing?.invoke()
+            IconButton(onClick = { onExpandedChange(!expanded) }) {
+                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "收起$text" else "展开$text")
+            }
+        }
+    }
+}
+
+@Composable
 private fun TagPill(text: String, accent: Color) {
     Surface(shape = RoundedCornerShape(50), color = accent.copy(alpha = 0.12f)) { Text(text, color = accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) }
 }
@@ -2637,10 +2755,50 @@ private fun ImportPreviewDialog(request: PendingBackupImport, onDismiss: () -> U
 }
 
 @Composable
-private fun ReminderDialog(projects: List<ProjectEntity>, onDismiss: () -> Unit, onSave: (String?, String, String, String, String, String) -> Unit) {
-    var kind by rememberSaveable { mutableStateOf("SUMMARY") }; var projectId by rememberSaveable { mutableStateOf("") }; var time by rememberSaveable { mutableStateOf("20:00") }; var quietStart by rememberSaveable { mutableStateOf("22:00") }; var quietEnd by rememberSaveable { mutableStateOf("07:00") }; var repeatDays by rememberSaveable { mutableStateOf("1,2,3,4,5,6,7") }
+private fun ReminderDialog(
+    projects: List<ProjectEntity>,
+    initialReminder: ReminderEntity? = null,
+    onDismiss: () -> Unit,
+    onSave: (String?, String, String, String, String, String) -> Unit,
+) {
+    val reminderKey = initialReminder?.id
+    var kind by rememberSaveable(reminderKey) { mutableStateOf(initialReminder?.kind ?: "SUMMARY") }
+    var projectId by rememberSaveable(reminderKey) { mutableStateOf(initialReminder?.projectId.orEmpty()) }
+    var time by rememberSaveable(reminderKey) { mutableStateOf(initialReminder?.timeMinutes?.let(::formatMinutes) ?: "20:00") }
+    var quietStart by rememberSaveable(reminderKey) { mutableStateOf(initialReminder?.quietStartMinutes?.let(::formatMinutes) ?: "22:00") }
+    var quietEnd by rememberSaveable(reminderKey) { mutableStateOf(initialReminder?.quietEndMinutes?.let(::formatMinutes) ?: "07:00") }
+    var repeatDays by rememberSaveable(reminderKey) { mutableStateOf(initialReminder?.repeatDays ?: "1,2,3,4,5,6,7") }
     val selectedDays = repeatDays.split(',').mapNotNull { it.toIntOrNull() }.toSet(); val dayLabels = listOf("一", "二", "三", "四", "五", "六", "日")
-    FormDialog("添加固定提醒", onDismiss, "保存", { ChoiceRow("提醒对象", kind, listOf("SUMMARY", "PROJECT"), { if (it == "SUMMARY") "每日进度" else "学习项目" }) { kind = it; if (it == "PROJECT" && projectId.isBlank()) projectId = projects.firstOrNull()?.id.orEmpty() }; if (kind == "PROJECT") ProjectPicker(projects, projectId) { projectId = it }; TimeInputField(time, { time = it }, label = "提醒时间"); Text("提醒日期", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) { (1..7).forEach { day -> FilterChip(selected = day in selectedDays, onClick = { repeatDays = (if (day in selectedDays) selectedDays - day else selectedDays + day).sorted().joinToString(",") }, label = { Text(dayLabels[day - 1]) }) } }; Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { TimeInputField(quietStart, { quietStart = it }, label = "安静开始", modifier = Modifier.weight(1f)); TimeInputField(quietEnd, { quietEnd = it }, label = "安静结束", modifier = Modifier.weight(1f)) }; Text("安静时段内不会触发这条提醒；默认 22:00—07:00。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }) { onSave(if (kind == "PROJECT") projectId.takeIf(String::isNotBlank) else null, kind, time, quietStart, quietEnd, repeatDays) }
+    FormDialog(
+        title = if (initialReminder == null) "添加固定提醒" else "编辑固定提醒",
+        onDismiss = onDismiss,
+        confirmLabel = "保存",
+        content = {
+            ChoiceRow("提醒对象", kind, listOf("SUMMARY", "PROJECT"), { if (it == "SUMMARY") "每日进度" else "学习项目" }) {
+                kind = it
+                if (it == "SUMMARY") projectId = ""
+                if (it == "PROJECT" && projectId.isBlank()) projectId = projects.firstOrNull()?.id.orEmpty()
+            }
+            if (kind == "PROJECT") ProjectPicker(projects, projectId) { projectId = it }
+            TimeInputField(time, { time = it }, label = "提醒时间")
+            Text("提醒日期", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                (1..7).forEach { day ->
+                    FilterChip(
+                        selected = day in selectedDays,
+                        onClick = { repeatDays = (if (day in selectedDays) selectedDays - day else selectedDays + day).sorted().joinToString(",") },
+                        label = { Text(dayLabels[day - 1]) },
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TimeInputField(quietStart, { quietStart = it }, label = "安静开始", modifier = Modifier.weight(1f))
+                TimeInputField(quietEnd, { quietEnd = it }, label = "安静结束", modifier = Modifier.weight(1f))
+            }
+            Text("安静时段内不会触发这条提醒；默认 22:00—07:00。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+        },
+        onConfirm = { onSave(if (kind == "PROJECT") projectId.takeIf(String::isNotBlank) else null, kind, time, quietStart, quietEnd, repeatDays) },
+    )
 }
 
 @Composable
