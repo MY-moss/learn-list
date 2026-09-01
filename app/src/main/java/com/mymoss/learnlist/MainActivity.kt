@@ -16,6 +16,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import com.mymoss.learnlist.data.SettingsRepository
 import com.mymoss.learnlist.data.DiagnosticsService
 import com.mymoss.learnlist.data.backup.BackupImportMode
@@ -35,6 +36,7 @@ import com.mymoss.learnlist.ui.UpdateUiState
 import com.mymoss.learnlist.ui.theme.LearnListTheme
 import java.io.ByteArrayOutputStream
 import java.time.Duration
+import java.time.Clock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
@@ -116,6 +118,7 @@ class MainActivity : ComponentActivity() {
         val feedbackContext = applicationContext
         setContent {
             LearnListTheme {
+                val appClock = remember { Clock.systemDefaultZone() }
                 val pending by pendingBackupImport.collectAsState()
                 val appSettings by settingsRepository.settings.collectAsState(initial = null)
                 val viewModel: com.mymoss.learnlist.ui.LearnListViewModel = viewModel(
@@ -145,6 +148,7 @@ class MainActivity : ComponentActivity() {
                     onDismissUpdate = { updateState.update { it.copy(available = null) } },
                     onRequestNotifications = ::requestNotificationPermission,
                     onRequestExactAlarms = ::requestExactAlarmPermission,
+                    appClock = appClock,
                     soundEnabled = appSettings?.soundEnabled ?: true,
                     vibrationEnabled = appSettings?.vibrationEnabled ?: true,
                     focusFeedbackMode = appSettings?.focusFeedbackMode ?: "GLOBAL",
