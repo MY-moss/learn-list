@@ -172,6 +172,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -530,12 +531,12 @@ fun LearnListApp(
         }
     }
     if (showReadingDialog) {
-        ReadingDialog(projects = state.projects, initialProjectId = readingProjectId, onDismiss = { showReadingDialog = false }) { projectId, title, total, target, deadline ->
+        ReadingDialog(projects = state.projects, initialProjectId = readingProjectId, today = deviceToday, onDismiss = { showReadingDialog = false }) { projectId, title, total, target, deadline ->
             viewModel.addReadingPlan(projectId, title, total, target, deadline) { success -> if (success) showReadingDialog = false }
         }
     }
     if (showTodoDialog) {
-        TodoDialog(onDismiss = { showTodoDialog = false }, projects = state.projects) { title, notes, required, repeat, custom, dueDate, projectId ->
+        TodoDialog(onDismiss = { showTodoDialog = false }, projects = state.projects, today = deviceToday) { title, notes, required, repeat, custom, dueDate, projectId ->
             viewModel.addTodo(title, notes, required, repeat, custom, dueDate, projectId) { success -> if (success) showTodoDialog = false }
         }
     }
@@ -543,7 +544,7 @@ fun LearnListApp(
         ReviewDialog(task, { showReviewDialog = null }) { rating -> viewModel.review(task.id, rating, currentDay); showReviewDialog = null }
     }
     showCorrectionDialog?.let { task ->
-        ReviewCorrectionDialog(task, { showCorrectionDialog = null }) { stage, nextDate, reason ->
+        ReviewCorrectionDialog(task, { showCorrectionDialog = null }, today = deviceToday) { stage, nextDate, reason ->
             viewModel.correctReview(task, stage, nextDate, reason) { success -> if (success) showCorrectionDialog = null }
         }
     }
@@ -558,12 +559,12 @@ fun LearnListApp(
         }
     }
     if (showGoalDialog) {
-        GoalDialog(onDismiss = { showGoalDialog = false }, projects = state.projects) { title, metric, target, period, endDate, projectId ->
+        GoalDialog(onDismiss = { showGoalDialog = false }, projects = state.projects, today = deviceToday) { title, metric, target, period, endDate, projectId ->
             viewModel.addGoal(title, metric, target, period, endDate, projectId) { success -> if (success) showGoalDialog = false }
         }
     }
     if (showCountdownDialog) {
-        CountdownDialog(onDismiss = { showCountdownDialog = false }) { title, date, time, note, reminder ->
+        CountdownDialog(onDismiss = { showCountdownDialog = false }, today = deviceToday, zoneId = appClock.zone) { title, date, time, note, reminder ->
             viewModel.addCountdown(title, date, time, note, reminder) { success -> if (success) showCountdownDialog = false }
         }
     }
@@ -593,22 +594,22 @@ fun LearnListApp(
         }
     }
     editReadingPlan?.let { plan ->
-        ReadingDialog(projects = state.projects, initialProjectId = plan.projectId, initialPlan = plan, onDismiss = { editReadingPlan = null }) { _, title, total, target, deadline ->
+        ReadingDialog(projects = state.projects, initialProjectId = plan.projectId, initialPlan = plan, today = deviceToday, onDismiss = { editReadingPlan = null }) { _, title, total, target, deadline ->
             viewModel.updateReadingPlan(plan, title, total, target, deadline) { success -> if (success) editReadingPlan = null }
         }
     }
     editTodo?.let { todo ->
-        TodoDialog(onDismiss = { editTodo = null }, projects = state.projects, initialTodo = todo) { title, notes, required, repeat, custom, dueDate, projectId ->
+        TodoDialog(onDismiss = { editTodo = null }, projects = state.projects, initialTodo = todo, today = deviceToday) { title, notes, required, repeat, custom, dueDate, projectId ->
             viewModel.updateTodo(todo, title, notes, required, repeat, custom, dueDate, projectId) { success -> if (success) editTodo = null }
         }
     }
     editGoal?.let { goal ->
-        GoalDialog(onDismiss = { editGoal = null }, projects = state.projects, initialGoal = goal) { title, metric, target, period, endDate, projectId ->
+        GoalDialog(onDismiss = { editGoal = null }, projects = state.projects, initialGoal = goal, today = deviceToday) { title, metric, target, period, endDate, projectId ->
             viewModel.updateGoal(goal, title, metric, target, period, endDate, projectId) { success -> if (success) editGoal = null }
         }
     }
     editCountdown?.let { countdown ->
-        CountdownDialog(onDismiss = { editCountdown = null }, initialCountdown = countdown) { title, date, time, note, reminder ->
+        CountdownDialog(onDismiss = { editCountdown = null }, initialCountdown = countdown, today = deviceToday, zoneId = appClock.zone) { title, date, time, note, reminder ->
             viewModel.updateCountdown(countdown, title, date, time, note, reminder) { success -> if (success) editCountdown = null }
         }
     }
@@ -2501,27 +2502,27 @@ private fun TaskDialog(projects: List<ProjectEntity>, initialProjectId: String, 
 }
 
 @Composable
-private fun ReadingDialog(projects: List<ProjectEntity>, initialProjectId: String, initialPlan: ReadingPlanEntity? = null, onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
+private fun ReadingDialog(projects: List<ProjectEntity>, initialProjectId: String, initialPlan: ReadingPlanEntity? = null, today: LocalDate, onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
     var projectId by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.projectId ?: initialProjectId) }; var title by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.title.orEmpty()) }; var total by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.totalPages?.toString().orEmpty()) }; var target by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.dailyTarget?.toString().orEmpty()) }; var deadline by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.deadline.orEmpty()) }
-    FormDialog(if (initialPlan == null) "新建阅读计划" else "编辑阅读计划", onDismiss, if (initialPlan == null) "创建" else "保存", { ProjectPicker(projects, projectId) { projectId = it }; OutlinedTextField(title, { title = it }, label = { Text("书名或资料名") }, singleLine = true); OutlinedTextField(total, { total = it }, label = { Text("总页数") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(target, { target = it }, label = { Text("每日必须看多少页") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); DateInputField(deadline, { deadline = it }, label = "截止日（可选）", allowClear = true); Text("设置截止日后，可将剩余页数一键均摊。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }) { onSave(projectId, title, total, target, deadline) }
+    FormDialog(if (initialPlan == null) "新建阅读计划" else "编辑阅读计划", onDismiss, if (initialPlan == null) "创建" else "保存", { ProjectPicker(projects, projectId) { projectId = it }; OutlinedTextField(title, { title = it }, label = { Text("书名或资料名") }, singleLine = true); OutlinedTextField(total, { total = it }, label = { Text("总页数") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(target, { target = it }, label = { Text("每日必须看多少页") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); DateInputField(deadline, { deadline = it }, label = "截止日（可选）", allowClear = true, today = today); Text("设置截止日后，可将剩余页数一键均摊。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }) { onSave(projectId, title, total, target, deadline) }
 }
 
 @Composable
-private fun TodoDialog(projects: List<ProjectEntity> = emptyList(), initialTodo: TodoEntity? = null, onDismiss: () -> Unit, onSave: (String, String, Boolean, String, String, String, String?) -> Unit) {
-    var title by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.title.orEmpty()) }; var notes by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.notes.orEmpty()) }; var required by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.isRequired ?: true) }; var repeat by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.repeatRule ?: "ONCE") }; var custom by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.customRepeatDays.orEmpty()) }; var dueDate by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.dueDate ?: LocalDate.now().toString()) }; var projectId by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.projectId.orEmpty()) }
-    FormDialog(if (initialTodo == null) "新建待办" else "编辑待办", onDismiss, if (initialTodo == null) "添加" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("待办内容") }, singleLine = true); OutlinedTextField(notes, { notes = it }, label = { Text("备注（可选）") }); if (projects.isNotEmpty()) ProjectPicker(projects, projectId) { projectId = it }; ChoiceRow("重复方式", repeat, listOf("ONCE", "DAILY", "WEEKLY", "WORKDAYS", "CUSTOM"), ::repeatLabel) { repeat = it }; if (repeat == "CUSTOM") OutlinedTextField(custom, { custom = it }, label = { Text("星期数字：1,3,5") }, singleLine = true); DateInputField(dueDate, { dueDate = it }, label = if (repeat == "ONCE") "到期日" else "开始日期"); FilterChip(selected = required, onClick = { required = !required }, label = { Text(if (required) "必做" else "可选") }) }) { onSave(title, notes, required, repeat, custom, dueDate, projectId.takeIf(String::isNotBlank)) }
+private fun TodoDialog(projects: List<ProjectEntity> = emptyList(), initialTodo: TodoEntity? = null, today: LocalDate, onDismiss: () -> Unit, onSave: (String, String, Boolean, String, String, String, String?) -> Unit) {
+    var title by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.title.orEmpty()) }; var notes by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.notes.orEmpty()) }; var required by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.isRequired ?: true) }; var repeat by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.repeatRule ?: "ONCE") }; var custom by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.customRepeatDays.orEmpty()) }; var dueDate by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.dueDate ?: today.toString()) }; var projectId by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.projectId.orEmpty()) }
+    FormDialog(if (initialTodo == null) "新建待办" else "编辑待办", onDismiss, if (initialTodo == null) "添加" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("待办内容") }, singleLine = true); OutlinedTextField(notes, { notes = it }, label = { Text("备注（可选）") }); if (projects.isNotEmpty()) ProjectPicker(projects, projectId) { projectId = it }; ChoiceRow("重复方式", repeat, listOf("ONCE", "DAILY", "WEEKLY", "WORKDAYS", "CUSTOM"), ::repeatLabel) { repeat = it }; if (repeat == "CUSTOM") OutlinedTextField(custom, { custom = it }, label = { Text("星期数字：1,3,5") }, singleLine = true); DateInputField(dueDate, { dueDate = it }, label = if (repeat == "ONCE") "到期日" else "开始日期", today = today); FilterChip(selected = required, onClick = { required = !required }, label = { Text(if (required) "必做" else "可选") }) }) { onSave(title, notes, required, repeat, custom, dueDate, projectId.takeIf(String::isNotBlank)) }
 }
 
 @Composable
-private fun GoalDialog(projects: List<ProjectEntity> = emptyList(), initialGoal: GoalEntity? = null, onDismiss: () -> Unit, onSave: (String, String, String, String, String, String?) -> Unit) {
+private fun GoalDialog(projects: List<ProjectEntity> = emptyList(), initialGoal: GoalEntity? = null, today: LocalDate, onDismiss: () -> Unit, onSave: (String, String, String, String, String, String?) -> Unit) {
     var title by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.title.orEmpty()) }; var metric by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.metric ?: "FOCUS_MINUTES") }; var target by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.targetValue?.toString().orEmpty()) }; var period by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.period ?: "DAILY") }; var endDate by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.endDate.orEmpty()) }; var projectId by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.projectId.orEmpty()) }
-    FormDialog(if (initialGoal == null) "新建量化目标" else "编辑量化目标", onDismiss, if (initialGoal == null) "创建" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("目标名称") }, singleLine = true); if (projects.isNotEmpty()) ProjectPicker(projects, projectId) { projectId = it }; ChoiceRow("统计对象", metric, listOf("FOCUS_MINUTES", "READING_PAGES", "REVIEW_TASKS", "TODO_DONE"), ::metricLabel) { metric = it }; OutlinedTextField(target, { target = it }, label = { Text("目标值") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); ChoiceRow("周期", period, listOf("DAILY", "WEEKLY", "MONTHLY", "CUSTOM"), ::periodLabel) { period = it }; if (period == "CUSTOM") DateInputField(endDate, { endDate = it }, label = "截止日", allowClear = true) }) { onSave(title, metric, target, period, endDate, projectId.takeIf(String::isNotBlank)) }
+    FormDialog(if (initialGoal == null) "新建量化目标" else "编辑量化目标", onDismiss, if (initialGoal == null) "创建" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("目标名称") }, singleLine = true); if (projects.isNotEmpty()) ProjectPicker(projects, projectId) { projectId = it }; ChoiceRow("统计对象", metric, listOf("FOCUS_MINUTES", "READING_PAGES", "REVIEW_TASKS", "TODO_DONE"), ::metricLabel) { metric = it }; OutlinedTextField(target, { target = it }, label = { Text("目标值") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); ChoiceRow("周期", period, listOf("DAILY", "WEEKLY", "MONTHLY", "CUSTOM"), ::periodLabel) { period = it }; if (period == "CUSTOM") DateInputField(endDate, { endDate = it }, label = "截止日", allowClear = true, today = today) }) { onSave(title, metric, target, period, endDate, projectId.takeIf(String::isNotBlank)) }
 }
 
 @Composable
-private fun CountdownDialog(initialCountdown: CountdownEntity? = null, onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
-    var title by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.title.orEmpty()) }; var date by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.let { Instant.ofEpochMilli(it.eventAtEpochMillis).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString() } ?: LocalDate.now().plusDays(7).toString()) }; var time by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.let { Instant.ofEpochMilli(it.eventAtEpochMillis).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withSecond(0).withNano(0).toString() } ?: "09:00") }; var note by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.note.orEmpty()) }; var reminder by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.reminderMinutesBefore?.toString().orEmpty()) }
-    FormDialog(if (initialCountdown == null) "新建倒计时" else "编辑倒计时", onDismiss, if (initialCountdown == null) "创建" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("事件名称") }, singleLine = true); DateInputField(date, { date = it }, label = "日期"); TimeInputField(time, { time = it }, label = "时间"); OutlinedTextField(reminder, { reminder = it }, label = { Text("提前提醒分钟（可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(note, { note = it }, label = { Text("备注（可选）") }) }) { onSave(title, date, time, note, reminder) }
+private fun CountdownDialog(initialCountdown: CountdownEntity? = null, today: LocalDate, zoneId: ZoneId, onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
+    var title by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.title.orEmpty()) }; var date by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.let { Instant.ofEpochMilli(it.eventAtEpochMillis).atZone(zoneId).toLocalDate().toString() } ?: today.plusDays(7).toString()) }; var time by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.let { Instant.ofEpochMilli(it.eventAtEpochMillis).atZone(zoneId).toLocalTime().withSecond(0).withNano(0).toString() } ?: "09:00") }; var note by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.note.orEmpty()) }; var reminder by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.reminderMinutesBefore?.toString().orEmpty()) }
+    FormDialog(if (initialCountdown == null) "新建倒计时" else "编辑倒计时", onDismiss, if (initialCountdown == null) "创建" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("事件名称") }, singleLine = true); DateInputField(date, { date = it }, label = "日期", today = today); TimeInputField(time, { time = it }, label = "时间"); OutlinedTextField(reminder, { reminder = it }, label = { Text("提前提醒分钟（可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(note, { note = it }, label = { Text("备注（可选）") }) }) { onSave(title, date, time, note, reminder) }
 }
 
 @Composable
@@ -2534,10 +2535,11 @@ private fun ReviewDialog(task: LearningTaskEntity, onDismiss: () -> Unit, onRevi
 private fun ReviewCorrectionDialog(
     task: LearningTaskEntity,
     onDismiss: () -> Unit,
+    today: LocalDate,
     onSave: (stage: String, nextReviewDate: String, reason: String) -> Unit,
 ) {
     var stage by rememberSaveable(task.id) { mutableStateOf(task.stage.coerceIn(0, 7).toString()) }
-    var nextReviewDate by rememberSaveable(task.id) { mutableStateOf(task.nextReviewDate ?: LocalDate.now().toString()) }
+    var nextReviewDate by rememberSaveable(task.id) { mutableStateOf(task.nextReviewDate ?: today.toString()) }
     var reason by rememberSaveable(task.id) { mutableStateOf("") }
     FormDialog(
         title = "纠正复习计划",
@@ -2556,6 +2558,7 @@ private fun ReviewCorrectionDialog(
                 value = nextReviewDate,
                 onValueChange = { nextReviewDate = it },
                 label = "下次复习日期",
+                today = today,
             )
             OutlinedTextField(
                 value = reason,
