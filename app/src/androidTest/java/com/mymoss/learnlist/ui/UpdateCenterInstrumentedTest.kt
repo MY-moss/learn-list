@@ -40,7 +40,7 @@ class UpdateCenterInstrumentedTest {
 
         composeRule.onNodeWithText("正在下载更新包…").assertIsDisplayed()
         composeRule.onNodeWithText("下载进度 42%").assertIsDisplayed()
-        composeRule.onNodeWithText("43 KB / 100 KB").assertIsDisplayed()
+        composeRule.onNodeWithText("已下载 43 KB / 100 KB").assertIsDisplayed()
     }
 }
 
