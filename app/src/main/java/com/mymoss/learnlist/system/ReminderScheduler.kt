@@ -37,8 +37,7 @@ class ReminderScheduler(
         (previouslyScheduledReminderIds + currentReminderIds).forEach(::cancelReminder)
         (previouslyScheduledCountdownIds + currentCountdownIds).forEach(::cancelCountdown)
         snapshot.reminders
-            .filter(ReminderEntity::enabled)
-            .filter { reminder -> reminder.projectId == null || snapshot.projects.any { project -> project.id == reminder.projectId && !project.isArchived && !project.isPaused && project.deletedAt == null } }
+            .filter { reminder -> ReminderSchedulingPolicy.shouldSchedule(reminder, snapshot.projects) }
             .forEach(::scheduleReminder)
         snapshot.countdowns.filter { !it.isCompleted && it.deletedAt == null }.forEach(::scheduleCountdown)
         schedulerPreferences.edit()
@@ -137,3 +136,4 @@ class ReminderScheduler(
         const val KEY_COUNTDOWN_IDS = "scheduled_countdown_ids"
     }
 }
+
