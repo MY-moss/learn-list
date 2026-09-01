@@ -2,6 +2,7 @@ package com.mymoss.learnlist
 
 import android.app.NotificationManager
 import android.content.Intent
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -22,10 +23,16 @@ class FocusTimerServiceInstrumentedTest {
             .putExtra(FocusTimerService.EXTRA_PLANNED_MINUTES, 1)
         try {
             ContextCompat.startForegroundService(context, intent)
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            val notificationManager = context.getSystemService(NotificationManager::class.java)
+            var channel = notificationManager.getNotificationChannel(FocusTimerService.CHANNEL_ID)
+            val deadline = SystemClock.uptimeMillis() + 5_000L
+            while (channel == null && SystemClock.uptimeMillis() < deadline) {
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                SystemClock.sleep(100L)
+                channel = notificationManager.getNotificationChannel(FocusTimerService.CHANNEL_ID)
+            }
             assertNotNull(
-                context.getSystemService(NotificationManager::class.java)
-                    .getNotificationChannel(FocusTimerService.CHANNEL_ID),
+                channel,
             )
         } finally {
             context.stopService(Intent(context, FocusTimerService::class.java))
