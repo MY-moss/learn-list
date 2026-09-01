@@ -1598,15 +1598,14 @@ private fun periodLabel(period: String): String = when (period) { "WEEKLY" -> "�
 private fun formatMinutes(value: Int?): String = value?.let { "${it / 60}:${(it % 60).toString().padStart(2, '0')}" } ?: "未设置"
 private fun formatLastChecked(epoch: Long?): String = epoch?.let { Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm", Locale.CHINA)) } ?: "尚未检查"
 private fun formatBytes(bytes: Long): String {
-    if (bytes < 1024L) return "$bytes B"
-    val units = arrayOf("KB", "MB", "GB")
+    val units = arrayOf("B", "KB", "MB", "GB")
     var value = bytes.toDouble()
     var index = 0
     while (value >= 1024.0 && index < units.lastIndex) {
         value /= 1024.0
         index += 1
     }
-    return if (value >= 10.0 || value % 1.0 == 0.0) "${value.toInt()} ${units[index]}" else String.format(Locale.US, "%.1f %s", value, units[index])
+    return if (index == 0 || value >= 10.0 || value % 1.0 == 0.0) "${value.toInt()} ${units[index]}" else String.format(Locale.US, "%.1f %s", value, units[index])
 }
 @Composable
 private fun projectAccent(project: ProjectEntity): Color = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.tertiary, Color(0xFF7A6AB8))[project.id.hashCode().absoluteValue % 4]
