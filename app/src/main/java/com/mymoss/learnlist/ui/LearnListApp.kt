@@ -493,7 +493,9 @@ fun LearnListApp(
                     onPreviewFeedbackAudio = onPreviewFeedbackAudio,
                     onClearFeedbackAudio = onClearFeedbackAudio,
                     onReplayOnboarding = { showOnboarding = true },
-                    onNewReminder = viewModel::addReminder,
+                    onNewReminder = { projectId, kind, time, quietStart, quietEnd, repeatDays, onResult ->
+                        viewModel.addReminder(projectId, kind, time, quietStart, quietEnd, repeatDays, onResult)
+                    },
                     onSetReminderEnabled = viewModel::setReminderEnabled,
                     onDeleteReminder = viewModel::deleteReminder,
                     restDays = state.restDays,
@@ -518,40 +520,52 @@ fun LearnListApp(
     }
 
     if (showProjectDialog) {
-        ProjectDialog(onDismiss = { showProjectDialog = false }) { title, type, description, tags -> viewModel.addProject(title, type, description, tags); showProjectDialog = false }
+        ProjectDialog(onDismiss = { showProjectDialog = false }) { title, type, description, tags ->
+            viewModel.addProject(title, type, description, tags) { success -> if (success) showProjectDialog = false }
+        }
     }
     if (showTaskDialog) {
-        TaskDialog(projects = state.projects, initialProjectId = taskProjectId, onDismiss = { showTaskDialog = false }) { projectId, title, prompt, notes, source, required -> viewModel.addTask(projectId, title, prompt, notes, source, required); showTaskDialog = false }
+        TaskDialog(projects = state.projects, initialProjectId = taskProjectId, onDismiss = { showTaskDialog = false }) { projectId, title, prompt, notes, source, required ->
+            viewModel.addTask(projectId, title, prompt, notes, source, required) { success -> if (success) showTaskDialog = false }
+        }
     }
     if (showReadingDialog) {
-        ReadingDialog(projects = state.projects, initialProjectId = readingProjectId, onDismiss = { showReadingDialog = false }) { projectId, title, total, target, deadline -> viewModel.addReadingPlan(projectId, title, total, target, deadline); showReadingDialog = false }
+        ReadingDialog(projects = state.projects, initialProjectId = readingProjectId, onDismiss = { showReadingDialog = false }) { projectId, title, total, target, deadline ->
+            viewModel.addReadingPlan(projectId, title, total, target, deadline) { success -> if (success) showReadingDialog = false }
+        }
     }
     if (showTodoDialog) {
-        TodoDialog(onDismiss = { showTodoDialog = false }, projects = state.projects) { title, notes, required, repeat, custom, dueDate, projectId -> viewModel.addTodo(title, notes, required, repeat, custom, dueDate, projectId); showTodoDialog = false }
+        TodoDialog(onDismiss = { showTodoDialog = false }, projects = state.projects) { title, notes, required, repeat, custom, dueDate, projectId ->
+            viewModel.addTodo(title, notes, required, repeat, custom, dueDate, projectId) { success -> if (success) showTodoDialog = false }
+        }
     }
     showReviewDialog?.let { task ->
         ReviewDialog(task, { showReviewDialog = null }) { rating -> viewModel.review(task.id, rating, currentDay); showReviewDialog = null }
     }
     showCorrectionDialog?.let { task ->
         ReviewCorrectionDialog(task, { showCorrectionDialog = null }) { stage, nextDate, reason ->
-            viewModel.correctReview(task, stage, nextDate, reason)
-            showCorrectionDialog = null
+            viewModel.correctReview(task, stage, nextDate, reason) { success -> if (success) showCorrectionDialog = null }
         }
     }
     showPagesDialog?.let { plan ->
-        PagesDialog(plan, readingPagesOn(state.pageLogs, state.readingAdjustments, plan.id, currentDay), { showPagesDialog = null }) { pages -> viewModel.logReading(plan.id, pages, currentDay); showPagesDialog = null }
+        PagesDialog(plan, readingPagesOn(state.pageLogs, state.readingAdjustments, plan.id, currentDay), { showPagesDialog = null }) { pages ->
+            viewModel.logReading(plan.id, pages, currentDay) { success -> if (success) showPagesDialog = null }
+        }
     }
     showReadingAdjustmentDialog?.let { plan ->
         ReadingAdjustmentDialog(plan, { showReadingAdjustmentDialog = null }) { delta, reason ->
-            viewModel.adjustReading(plan, delta, reason, currentDay)
-            showReadingAdjustmentDialog = null
+            viewModel.adjustReading(plan, delta, reason, currentDay) { success -> if (success) showReadingAdjustmentDialog = null }
         }
     }
     if (showGoalDialog) {
-        GoalDialog(onDismiss = { showGoalDialog = false }, projects = state.projects) { title, metric, target, period, endDate, projectId -> viewModel.addGoal(title, metric, target, period, endDate, projectId); showGoalDialog = false }
+        GoalDialog(onDismiss = { showGoalDialog = false }, projects = state.projects) { title, metric, target, period, endDate, projectId ->
+            viewModel.addGoal(title, metric, target, period, endDate, projectId) { success -> if (success) showGoalDialog = false }
+        }
     }
     if (showCountdownDialog) {
-        CountdownDialog(onDismiss = { showCountdownDialog = false }) { title, date, time, note, reminder -> viewModel.addCountdown(title, date, time, note, reminder); showCountdownDialog = false }
+        CountdownDialog(onDismiss = { showCountdownDialog = false }) { title, date, time, note, reminder ->
+            viewModel.addCountdown(title, date, time, note, reminder) { success -> if (success) showCountdownDialog = false }
+        }
     }
     if (showBackupDialog) {
         BackupDialog("导出备份", "生成备份", { showBackupDialog = false }) { encrypted, password -> onExportBackup(encrypted, password); showBackupDialog = false }
@@ -569,33 +583,33 @@ fun LearnListApp(
         )
     }
     editProject?.let { project ->
-        ProjectDialog(initialProject = project, onDismiss = { editProject = null }) { title, type, description, tags -> viewModel.updateProject(project, title, type, description, tags); editProject = null }
+        ProjectDialog(initialProject = project, onDismiss = { editProject = null }) { title, type, description, tags ->
+            viewModel.updateProject(project, title, type, description, tags) { success -> if (success) editProject = null }
+        }
     }
     editTask?.let { task ->
-        TaskDialog(projects = state.projects, initialProjectId = task.projectId, initialTask = task, onDismiss = { editTask = null }) { _, title, prompt, notes, source, required -> viewModel.updateTask(task, title, prompt, notes, source, required); editTask = null }
+        TaskDialog(projects = state.projects, initialProjectId = task.projectId, initialTask = task, onDismiss = { editTask = null }) { _, title, prompt, notes, source, required ->
+            viewModel.updateTask(task, title, prompt, notes, source, required) { success -> if (success) editTask = null }
+        }
     }
     editReadingPlan?.let { plan ->
         ReadingDialog(projects = state.projects, initialProjectId = plan.projectId, initialPlan = plan, onDismiss = { editReadingPlan = null }) { _, title, total, target, deadline ->
-            viewModel.updateReadingPlan(plan, title, total, target, deadline)
-            editReadingPlan = null
+            viewModel.updateReadingPlan(plan, title, total, target, deadline) { success -> if (success) editReadingPlan = null }
         }
     }
     editTodo?.let { todo ->
         TodoDialog(onDismiss = { editTodo = null }, projects = state.projects, initialTodo = todo) { title, notes, required, repeat, custom, dueDate, projectId ->
-            viewModel.updateTodo(todo, title, notes, required, repeat, custom, dueDate, projectId)
-            editTodo = null
+            viewModel.updateTodo(todo, title, notes, required, repeat, custom, dueDate, projectId) { success -> if (success) editTodo = null }
         }
     }
     editGoal?.let { goal ->
         GoalDialog(onDismiss = { editGoal = null }, projects = state.projects, initialGoal = goal) { title, metric, target, period, endDate, projectId ->
-            viewModel.updateGoal(goal, title, metric, target, period, endDate, projectId)
-            editGoal = null
+            viewModel.updateGoal(goal, title, metric, target, period, endDate, projectId) { success -> if (success) editGoal = null }
         }
     }
     editCountdown?.let { countdown ->
         CountdownDialog(onDismiss = { editCountdown = null }, initialCountdown = countdown) { title, date, time, note, reminder ->
-            viewModel.updateCountdown(countdown, title, date, time, note, reminder)
-            editCountdown = null
+            viewModel.updateCountdown(countdown, title, date, time, note, reminder) { success -> if (success) editCountdown = null }
         }
     }
 }
@@ -1591,7 +1605,7 @@ private fun SettingsScreen(
     onPreviewFeedbackAudio: () -> Unit,
     onClearFeedbackAudio: () -> Unit,
     onReplayOnboarding: () -> Unit,
-    onNewReminder: (String?, String, String, String, String, String) -> Unit,
+    onNewReminder: (String?, String, String, String, String, String, (Boolean) -> Unit) -> Unit,
     onSetReminderEnabled: (String, Boolean) -> Unit,
     onDeleteReminder: (String) -> Unit,
     restDays: Set<DayOfWeek>,
@@ -1875,7 +1889,9 @@ private fun SettingsScreen(
         )
     }
     if (showReminderDialog) {
-        ReminderDialog(projects, { showReminderDialog = false }) { projectId, kind, time, quietStart, quietEnd, repeatDays -> onNewReminder(projectId, kind, time, quietStart, quietEnd, repeatDays); showReminderDialog = false }
+        ReminderDialog(projects, { showReminderDialog = false }) { projectId, kind, time, quietStart, quietEnd, repeatDays ->
+            onNewReminder(projectId, kind, time, quietStart, quietEnd, repeatDays) { success -> if (success) showReminderDialog = false }
+        }
     }
     val reminderToDelete = reminderToDeleteId?.let { id -> state.reminders.firstOrNull { it.id == id } }
     if (reminderToDelete != null) {
