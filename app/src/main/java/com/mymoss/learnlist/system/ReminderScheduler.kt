@@ -19,16 +19,32 @@ class ReminderScheduler(
     private val clock: Clock = Clock.systemDefaultZone(),
 ) {
     private val alarmManager = context.getSystemService(AlarmManager::class.java)
+    private val schedulerPreferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
     suspend fun rescheduleAll() {
         val snapshot = repository.snapshot()
-        snapshot.reminders.forEach { cancelReminder(it.id) }
-        snapshot.countdowns.forEach { cancelCountdown(it.id) }
+        val currentReminderIds = snapshot.reminders.map(ReminderEntity::id).toSet()
+        val currentCountdownIds = snapshot.countdowns.map(CountdownEntity::id).toSet()
+        val previouslyScheduledReminderIds = schedulerPreferences
+            .getStringSet(KEY_REMINDER_IDS, emptySet())
+            .orEmpty()
+            .toSet()
+        val previouslyScheduledCountdownIds = schedulerPreferences
+            .getStringSet(KEY_COUNTDOWN_IDS, emptySet())
+            .orEmpty()
+            .toSet()
+
+        (previouslyScheduledReminderIds + currentReminderIds).forEach(::cancelReminder)
+        (previouslyScheduledCountdownIds + currentCountdownIds).forEach(::cancelCountdown)
         snapshot.reminders
             .filter(ReminderEntity::enabled)
             .filter { reminder -> reminder.projectId == null || snapshot.projects.any { project -> project.id == reminder.projectId && !project.isArchived && !project.isPaused && project.deletedAt == null } }
             .forEach(::scheduleReminder)
         snapshot.countdowns.filter { !it.isCompleted && it.deletedAt == null }.forEach(::scheduleCountdown)
+        schedulerPreferences.edit()
+            .putStringSet(KEY_REMINDER_IDS, currentReminderIds)
+            .putStringSet(KEY_COUNTDOWN_IDS, currentCountdownIds)
+            .apply()
     }
 
     fun cancelReminder(id: String) {
@@ -114,4 +130,10 @@ class ReminderScheduler(
         Intent(context, ReminderReceiver::class.java),
         pendingFlags(),
     )
+
+    private companion object {
+        const val PREFERENCES_NAME = "reminder_scheduler_state"
+        const val KEY_REMINDER_IDS = "scheduled_reminder_ids"
+        const val KEY_COUNTDOWN_IDS = "scheduled_countdown_ids"
+    }
 }
