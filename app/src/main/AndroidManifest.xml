@@ -45,6 +45,15 @@
                 android:value="learning_focus_timer" />
         </service>
 
+        <service
+            android:name=".system.UpdateDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="app_update_download" />
+        </service>
+
         <receiver
             android:name=".system.BootReceiver"
             android:enabled="true"

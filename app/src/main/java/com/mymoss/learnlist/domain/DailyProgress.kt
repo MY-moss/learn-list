@@ -43,6 +43,7 @@ data class DailyTodoProgress(
     val baseDate: LocalDate?,
     val customDays: Set<DayOfWeek>,
     val completedDates: Set<LocalDate>,
+    val projectId: String? = null,
 )
 
 data class DailyProgressInput(
@@ -56,4 +57,3 @@ object InitialLearningTracker {
     fun isCompletedOn(recordedDate: String?, date: LocalDate): Boolean =
         recordedDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() == date } == true
 }
-

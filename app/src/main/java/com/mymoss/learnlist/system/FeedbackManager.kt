@@ -1,8 +1,6 @@
 package com.mymoss.learnlist.system
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -11,23 +9,26 @@ import com.mymoss.learnlist.data.AppSettings
 
 /** Plays the user's local completion feedback without requiring notification permission. */
 object FeedbackManager {
-    fun play(context: Context, settings: AppSettings) {
-        if (settings.soundEnabled) playSound(context)
-        if (settings.vibrationEnabled) vibrate(context)
-    }
+    enum class FeedbackContext { FOCUS, REMINDER, COUNTDOWN }
 
-    private fun playSound(context: Context) {
-        runCatching {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            val ringtone = RingtoneManager.getRingtone(context.applicationContext, uri) ?: return
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                ringtone.audioAttributes = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            }
-            ringtone.play()
+    fun play(context: Context, settings: AppSettings, feedbackContext: FeedbackContext = FeedbackContext.FOCUS) {
+        val mode = when (feedbackContext) {
+            FeedbackContext.FOCUS -> settings.focusFeedbackMode
+            FeedbackContext.REMINDER -> settings.reminderFeedbackMode
+            FeedbackContext.COUNTDOWN -> settings.countdownFeedbackMode
         }
+        val sound = when (mode) {
+            "SOUND", "BOTH" -> true
+            "VIBRATION", "OFF" -> false
+            else -> settings.soundEnabled
+        }
+        val vibration = when (mode) {
+            "VIBRATION", "BOTH" -> true
+            "SOUND", "OFF" -> false
+            else -> settings.vibrationEnabled
+        }
+        if (sound) FeedbackAudioManager.play(context, settings)
+        if (vibration) vibrate(context)
     }
 
     @Suppress("DEPRECATION")

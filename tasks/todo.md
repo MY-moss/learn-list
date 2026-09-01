@@ -1,9 +1,12 @@
 # 发布前待办
 
-- [x] 由应用持有人创建并离线保存 Release keystore，配置 GitHub Actions Secrets；`v0.2.7` 签名 APK 已上传并完成远端摘要/签名核验，仍待真机覆盖安装。
+- [ ] 由应用持有人创建并离线保存 Release keystore，配置 GitHub Actions Secrets；仓库已有 `v0.2.7` Release，但本次工作树尚未重新发布。
 - [ ] 在实体 Android 8/13/当前版本设备执行通知、AlarmManager、精确提醒、省电和重启测试。
-- [x] AndroidTest 已覆盖加密备份错误密码、损坏引用、替换导入和设置恢复；GitHub Actions API 36 模拟器已通过，仍待真机文件选择器执行。
+- [x] AndroidTest 已覆盖加密备份错误密码、损坏引用、替换导入和设置恢复（仍待真机执行）。
 - [ ] 在真机上验证文件选择器、损坏文件、合并/替换和旧数据库迁移。
-- [x] GitHub Actions 已运行 `connectedDebugAndroidTest`：API 36 模拟器上的 Compose、Room、备份和迁移仪器测试全部通过；实体设备验证仍待完成。
-- [x] 发布稳定版 `v0.2.7`：已生成签名 APK 与 `.sha256` 并上传 GitHub Release；覆盖安装仍待真机执行。
+- [ ] 在 GitHub Actions API 26/33/36 模拟器运行完整 `connectedDebugAndroidTest`；当前本机无可用设备，仍待 CI/实体设备复测。
+- [ ] 为本次后续升级递增版本号、用真实 Release keystore 签名并发布新的稳定版；当前本地 Release 仅生成未签名包。
 - [x] 已接入真正的前台计时服务和持久通知；更多提醒动作与云同步仍不纳入首版，后续另行评估。
+- [x] 已接入更新进度持久化、暂停/续传、摘要/版本/证书校验；安装器取消后的系统级回查仍需真机验收。
+- [x] 增加系统音效试听、导入音频、私有目录存储和加密备份迁移。
+- [ ] 增加系统日期/时间选择器和完整回收站确认交互。

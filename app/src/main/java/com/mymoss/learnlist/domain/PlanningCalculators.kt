@@ -59,20 +59,21 @@ class DailyProgressCalculator {
                     add(DailyAction(isRequired = true, isCompleted = planFinished || pages >= target.coerceAtLeast(1)))
                 }
 
-            if (projectId == null) {
-                input.todos
-                    .filter { it.isRequired && !it.isArchived }
-                    .filter { todo ->
-                        TodoRecurrence.isDue(
-                            rule = todo.repeatRule,
-                            baseDate = todo.baseDate,
-                            date = date,
-                            customDays = todo.customDays,
-                            completedDates = todo.completedDates,
-                        )
-                    }
-                    .forEach { todo -> add(DailyAction(isRequired = true, isCompleted = date in todo.completedDates)) }
-            }
+            input.todos
+                .filter { it.isRequired && !it.isArchived }
+                .filter { todo ->
+                    if (projectId == null) todo.projectId == null || todo.projectId in activeProjectIds else projectId in activeProjectIds && todo.projectId == projectId
+                }
+                .filter { todo ->
+                    TodoRecurrence.isDue(
+                        rule = todo.repeatRule,
+                        baseDate = todo.baseDate,
+                        date = date,
+                        customDays = todo.customDays,
+                        completedDates = todo.completedDates,
+                    )
+                }
+                .forEach { todo -> add(DailyAction(isRequired = true, isCompleted = date in todo.completedDates)) }
         }
         return calculate(actions)
     }
@@ -140,4 +141,3 @@ class GoalProgressCalculator {
         return GoalProgress(percent = percent, isComplete = current >= target)
     }
 }
-

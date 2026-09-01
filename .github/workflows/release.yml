@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing version tag to build and publish, for example v0.2.3
+        description: Existing version tag to build and publish, for example v0.2.2
         required: true
         type: string
 
@@ -79,4 +79,3 @@ jobs:
             "$RUNNER_TEMP/learn-list-${RELEASE_TAG}.apk" \
             "$RUNNER_TEMP/learn-list-${RELEASE_TAG}.apk.sha256" \
             --verify-tag --generate-notes --title "Learn List ${RELEASE_TAG}"
-

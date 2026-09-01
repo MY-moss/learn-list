@@ -13,12 +13,16 @@ import com.mymoss.learnlist.data.local.PageLogEntity
 import com.mymoss.learnlist.data.local.ProjectEntity
 import com.mymoss.learnlist.data.local.ReadingPlanEntity
 import com.mymoss.learnlist.data.local.ReadingTargetEntity
+import com.mymoss.learnlist.data.local.ReadingAdjustmentEntity
 import com.mymoss.learnlist.data.local.ReminderEntity
+import com.mymoss.learnlist.data.local.ReviewCorrectionEntity
 import com.mymoss.learnlist.data.local.ReviewLogEntity
 import com.mymoss.learnlist.data.local.TodoEntity
 import java.nio.charset.StandardCharsets
+import java.io.File
 import java.security.SecureRandom
 import java.time.LocalDate
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
@@ -37,6 +41,7 @@ data class BackupPreview(
     val schemaVersion: Int?,
     val createdAt: Long?,
     val counts: Map<String, Int>,
+    val conflictCount: Int = 0,
 )
 
 data class PendingBackupImport(
@@ -52,13 +57,15 @@ class BackupException(message: String, cause: Throwable? = null) : Exception(mes
 class BackupService(
     private val repository: LearnListRepository,
     private val settingsRepository: SettingsRepository? = null,
+    private val safetySnapshotDirectory: File? = null,
+    private val feedbackAudioDirectory: File? = null,
 ) {
     suspend fun export(encrypted: Boolean, password: String = ""): ByteArray = withContext(Dispatchers.Default) {
         if (encrypted && password.length < MIN_PASSWORD_LENGTH) {
             throw BackupException("加密备份密码至少需要 8 位")
         }
         val settings = settingsRepository?.settings?.first()
-        val plain = snapshotToJson(repository.snapshot(), settings).toString().toByteArray(StandardCharsets.UTF_8)
+        val plain = snapshotToJson(repository.snapshot(), settings, includeAudio = encrypted).toString().toByteArray(StandardCharsets.UTF_8)
         if (!encrypted) return@withContext plain
 
         val salt = ByteArray(SALT_SIZE)
@@ -80,7 +87,7 @@ class BackupService(
     fun preview(bytes: ByteArray): BackupPreview {
         if (bytes.size > MAX_BACKUP_BYTES) throw BackupException("备份文件过大")
         val root = parseRoot(bytes)
-        if (root.optString("format") == ENCRYPTED_FORMAT) {
+        if (root.optString("format") in ENCRYPTED_FORMATS) {
             return BackupPreview(encrypted = true, schemaVersion = null, createdAt = null, counts = emptyMap())
         }
         return snapshotFromJson(root).preview
@@ -89,11 +96,12 @@ class BackupService(
     suspend fun preview(bytes: ByteArray, password: String): BackupPreview = withContext(Dispatchers.Default) {
         if (bytes.size > MAX_BACKUP_BYTES) throw BackupException("备份文件过大")
         val root = parseRoot(bytes)
-        val plainRoot = if (root.optString("format") == ENCRYPTED_FORMAT) {
+        val encrypted = root.optString("format") in ENCRYPTED_FORMATS
+        val plainRoot = if (encrypted) {
             if (password.length < MIN_PASSWORD_LENGTH) throw BackupException("请输入正确的备份密码")
             decryptRoot(root, password)
         } else root
-        return@withContext snapshotFromJson(plainRoot).preview.copy(encrypted = root.optString("format") == ENCRYPTED_FORMAT)
+        return@withContext snapshotFromJson(plainRoot).preview.copy(encrypted = encrypted)
     }
 
     suspend fun import(
@@ -103,13 +111,17 @@ class BackupService(
     ): BackupPreview = withContext(Dispatchers.Default) {
         if (bytes.size > MAX_BACKUP_BYTES) throw BackupException("备份文件过大")
         val root = parseRoot(bytes)
-        val plainRoot = if (root.optString("format") == ENCRYPTED_FORMAT) {
+        val encrypted = root.optString("format") in ENCRYPTED_FORMATS
+        val plainRoot = if (encrypted) {
             if (password.length < MIN_PASSWORD_LENGTH) throw BackupException("请输入正确的备份密码")
             decryptRoot(root, password)
         } else {
             root
         }
         val parsed = snapshotFromJson(plainRoot)
+        if (mode == BackupImportMode.REPLACE) createSafetySnapshot(password)
+        val previousAudioPath = settingsRepository?.settings?.first()?.feedbackAudioPath
+        val restoredAudio = restoreAudio(parsed.audio)
         when (mode) {
             BackupImportMode.MERGE -> repository.merge(parsed.snapshot)
             BackupImportMode.REPLACE -> repository.replaceAll(parsed.snapshot)
@@ -125,10 +137,26 @@ class BackupService(
                     restDaysCsv = imported.restDaysCsv,
                     soundEnabled = imported.soundEnabled,
                     vibrationEnabled = imported.vibrationEnabled,
+                    focusFeedbackMode = imported.focusFeedbackMode,
+                    reminderFeedbackMode = imported.reminderFeedbackMode,
+                    countdownFeedbackMode = imported.countdownFeedbackMode,
+                    focusAutoStartBreaks = imported.focusAutoStartBreaks,
+                    pendingUpdateVersionName = imported.pendingUpdateVersionName,
+                    feedbackAudioPath = when {
+                        restoredAudio != null -> restoredAudio.path
+                        mode == BackupImportMode.REPLACE -> null
+                        else -> current.feedbackAudioPath
+                    },
+                    feedbackAudioName = when {
+                        restoredAudio != null -> restoredAudio.displayName
+                        mode == BackupImportMode.REPLACE -> null
+                        else -> current.feedbackAudioName
+                    },
                 )
             }
         }
-        parsed.preview.copy(encrypted = root.optString("format") == ENCRYPTED_FORMAT)
+        if (mode == BackupImportMode.REPLACE && restoredAudio?.path != previousAudioPath) deleteOwnedAudio(previousAudioPath)
+        parsed.preview.copy(encrypted = encrypted)
     }
 
     private fun parseRoot(bytes: ByteArray): JSONObject = try {
@@ -158,17 +186,20 @@ class BackupService(
         }
     }
 
-    private fun snapshotToJson(snapshot: BackupSnapshot, settings: AppSettings?): JSONObject = JSONObject()
+    private fun snapshotToJson(snapshot: BackupSnapshot, settings: AppSettings?, includeAudio: Boolean): JSONObject = JSONObject()
         .put("format", PLAIN_FORMAT)
         .put("schemaVersion", SCHEMA_VERSION)
         .put("createdAt", System.currentTimeMillis())
         .putNullable("settings", settings?.let(::settingsJson))
+        .putNullable("feedbackAudio", if (includeAudio) settings?.let(::feedbackAudioJson) else null)
         .put("projects", JSONArray(snapshot.projects.map(::projectJson)))
         .put("tasks", JSONArray(snapshot.tasks.map(::taskJson)))
         .put("reviewLogs", JSONArray(snapshot.reviewLogs.map(::reviewLogJson)))
+        .put("reviewCorrections", JSONArray(snapshot.reviewCorrections.map(::reviewCorrectionJson)))
         .put("readingPlans", JSONArray(snapshot.readingPlans.map(::readingPlanJson)))
         .put("readingTargets", JSONArray(snapshot.readingTargets.map(::readingTargetJson)))
         .put("pageLogs", JSONArray(snapshot.pageLogs.map(::pageLogJson)))
+        .put("readingAdjustments", JSONArray(snapshot.readingAdjustments.map(::readingAdjustmentJson)))
         .put("todos", JSONArray(snapshot.todos.map(::todoJson)))
         .put("focusSessions", JSONArray(snapshot.focusSessions.map(::focusJson)))
         .put("goals", JSONArray(snapshot.goals.map(::goalJson)))
@@ -176,17 +207,17 @@ class BackupService(
         .put("reminders", JSONArray(snapshot.reminders.map(::reminderJson)))
 
     private fun previewFromPlain(root: JSONObject): BackupPreview {
-        if (root.optString("format") != PLAIN_FORMAT) throw BackupException("备份文件格式无效")
+        if (root.optString("format") !in PLAIN_FORMATS) throw BackupException("备份文件格式无效")
         val schema = root.optInt("schemaVersion", -1)
-        if (schema != SCHEMA_VERSION) throw BackupException("不支持的备份版本：$schema")
-        val names = listOf("projects", "tasks", "reviewLogs", "readingPlans", "readingTargets", "pageLogs", "todos", "focusSessions", "goals", "countdowns", "reminders", "settings")
+        if (schema !in LEGACY_SCHEMA_VERSIONS && schema != SCHEMA_VERSION) throw BackupException("不支持的备份版本：$schema")
+        val names = listOf("projects", "tasks", "reviewLogs", "reviewCorrections", "readingPlans", "readingTargets", "pageLogs", "readingAdjustments", "todos", "focusSessions", "goals", "countdowns", "reminders", "settings", "feedbackAudio")
         return BackupPreview(
             encrypted = false,
             schemaVersion = schema,
             createdAt = root.optLong("createdAt").takeIf { it > 0 },
             counts = names.associateWith { name ->
-                if (name == "settings") {
-                    if (root.optJSONObject(name) != null) 1 else 0
+                    if (name == "settings" || name == "feedbackAudio") {
+                        if (root.optJSONObject(name) != null) 1 else 0
                 } else {
                     root.optJSONArray(name)?.length() ?: 0
                 }
@@ -201,9 +232,11 @@ class BackupService(
                 projects = array("projects").objects(::parseProject),
                 tasks = array("tasks").objects(::parseTask),
                 reviewLogs = array("reviewLogs").objects(::parseReviewLog),
+                reviewCorrections = array("reviewCorrections").objects(::parseReviewCorrection),
                 readingPlans = array("readingPlans").objects(::parseReadingPlan),
                 readingTargets = array("readingTargets").objects(::parseReadingTarget),
                 pageLogs = array("pageLogs").objects(::parsePageLog),
+                readingAdjustments = array("readingAdjustments").objects(::parseReadingAdjustment),
                 todos = array("todos").objects(::parseTodo),
                 focusSessions = array("focusSessions").objects(::parseFocus),
                 goals = array("goals").objects(::parseGoal),
@@ -214,6 +247,7 @@ class BackupService(
         return ParsedBackup(
             snapshot = snapshot,
             settings = parseSettings(root.optJSONObject("settings")),
+            audio = parseFeedbackAudio(root.optJSONObject("feedbackAudio")),
             preview = preview,
         )
     }
@@ -227,6 +261,9 @@ class BackupService(
         }
         val planIds = snapshot.readingPlans.map(ReadingPlanEntity::id).toSet().also { ids ->
             if (ids.size != snapshot.readingPlans.size) invalid("阅读计划 ID 重复")
+        }
+        val todoIds = snapshot.todos.map(TodoEntity::id).toSet().also { ids ->
+            if (ids.size != snapshot.todos.size) invalid("待办 ID 重复")
         }
 
         snapshot.tasks.forEach { task ->
@@ -242,6 +279,11 @@ class BackupService(
             if (log.previousStage !in 0..7 || log.nextStage !in 0..7) invalid("复习记录阶段无效")
             validateDate(log.reviewedOn, "reviewedOn")
             validateDate(log.nextReviewDate, "nextReviewDate")
+        }
+        snapshot.reviewCorrections.forEach { correction ->
+            if (correction.taskId !in taskIds) invalid("复习纠正引用不存在的学习任务")
+            if (correction.correctedStage !in 0..7) invalid("复习纠正阶段无效")
+            validateDate(correction.correctedNextReviewDate, "correctedNextReviewDate")
         }
         snapshot.readingPlans.forEach { plan ->
             if (plan.projectId !in projectIds) invalid("阅读计划引用不存在的项目")
@@ -260,7 +302,14 @@ class BackupService(
             if (log.planId !in planIds || log.pagesRead <= 0) invalid("阅读日志无效")
             validateDate(log.localDate, "localDate")
         }
+        snapshot.readingAdjustments.forEach { adjustment ->
+            if (adjustment.planId !in planIds || adjustment.deltaPages == 0) invalid("阅读调整无效")
+            validateDate(adjustment.localDate, "localDate")
+        }
         snapshot.todos.forEach { todo ->
+            if (todo.projectId != null && todo.projectId !in projectIds) invalid("待办引用不存在的项目")
+            if (todo.recurrenceSourceId != null && (todo.recurrenceSourceId !in todoIds || todo.recurrenceSourceId == todo.id)) invalid("待办补做实例引用无效")
+            if (todo.missedPromptPolicy !in setOf("ASK", "NEVER")) invalid("待办漏做提示策略无效")
             if (todo.repeatRule !in setOf("ONCE", "DAILY", "WEEKLY", "WORKDAYS", "CUSTOM")) invalid("待办重复规则无效")
             if (todo.repeatRule == "ONCE" && todo.dueDate == null) invalid("一次性待办缺少日期")
             if (todo.repeatRule == "CUSTOM") validateWeekdayCsv(todo.customRepeatDays, "自定义待办星期")
@@ -323,14 +372,20 @@ class BackupService(
     private data class ParsedBackup(
         val snapshot: BackupSnapshot,
         val settings: AppSettings?,
+        val audio: BackupAudio?,
         val preview: BackupPreview,
     )
+
+    private data class BackupAudio(val displayName: String, val bytes: ByteArray)
+
+    private data class RestoredAudio(val path: String, val displayName: String)
 
     private fun projectJson(item: ProjectEntity) = JSONObject().apply {
         put("id", item.id); put("title", item.title); put("type", item.type)
         put("description", item.description); put("tagCsv", item.tagCsv); put("colorHex", item.colorHex)
         put("isArchived", item.isArchived); put("isPaused", item.isPaused)
         put("createdAt", item.createdAt); put("updatedAt", item.updatedAt)
+        putNullable("deletedAt", item.deletedAt)
     }
 
     private fun taskJson(item: LearningTaskEntity) = JSONObject().apply {
@@ -340,6 +395,7 @@ class BackupService(
         putNullable("initialLearningDate", item.initialLearningDate)
         put("stage", item.stage); putNullable("nextReviewDate", item.nextReviewDate); putNullable("snoozedUntil", item.snoozedUntil)
         put("createdAt", item.createdAt); put("updatedAt", item.updatedAt)
+        putNullable("deletedAt", item.deletedAt)
     }
 
     private fun reviewLogJson(item: ReviewLogEntity) = JSONObject().apply {
@@ -347,11 +403,17 @@ class BackupService(
         put("previousStage", item.previousStage); put("nextStage", item.nextStage); put("nextReviewDate", item.nextReviewDate); put("createdAt", item.createdAt)
     }
 
+    private fun reviewCorrectionJson(item: ReviewCorrectionEntity) = JSONObject().apply {
+        put("id", item.id); put("taskId", item.taskId); put("correctedStage", item.correctedStage)
+        put("correctedNextReviewDate", item.correctedNextReviewDate); put("reason", item.reason); put("createdAt", item.createdAt)
+    }
+
     private fun readingPlanJson(item: ReadingPlanEntity) = JSONObject().apply {
         put("id", item.id); put("projectId", item.projectId); put("title", item.title); put("totalPages", item.totalPages)
         put("dailyTarget", item.dailyTarget); put("currentPage", item.currentPage); put("startDate", item.startDate)
         putNullable("deadline", item.deadline); put("isPaused", item.isPaused); put("isArchived", item.isArchived)
         put("createdAt", item.createdAt); put("updatedAt", item.updatedAt)
+        putNullable("deletedAt", item.deletedAt)
     }
 
     private fun readingTargetJson(item: ReadingTargetEntity) = JSONObject().apply {
@@ -364,28 +426,35 @@ class BackupService(
         putNullable("startPage", item.startPage); putNullable("endPage", item.endPage); put("createdAt", item.createdAt)
     }
 
+    private fun readingAdjustmentJson(item: ReadingAdjustmentEntity) = JSONObject().apply {
+        put("id", item.id); put("planId", item.planId); put("localDate", item.localDate)
+        put("deltaPages", item.deltaPages); put("reason", item.reason); put("createdAt", item.createdAt)
+    }
+
     private fun todoJson(item: TodoEntity) = JSONObject().apply {
         put("id", item.id); put("title", item.title); put("notes", item.notes); put("isRequired", item.isRequired)
+        putNullable("projectId", item.projectId)
         put("repeatRule", item.repeatRule); put("customRepeatDays", item.customRepeatDays); putNullable("dueDate", item.dueDate)
         put("completedDates", item.completedDates); put("isArchived", item.isArchived); put("createdAt", item.createdAt); put("updatedAt", item.updatedAt)
+        putNullable("deletedAt", item.deletedAt); putNullable("recurrenceSourceId", item.recurrenceSourceId); put("missedPromptPolicy", item.missedPromptPolicy)
     }
 
     private fun focusJson(item: FocusSessionEntity) = JSONObject().apply {
         put("id", item.id); putNullable("projectId", item.projectId); putNullable("taskId", item.taskId)
         put("startedAt", item.startedAt); putNullable("endedAt", item.endedAt); put("plannedMinutes", item.plannedMinutes)
-        put("actualMinutes", item.actualMinutes); put("status", item.status)
+        put("actualMinutes", item.actualMinutes); put("actualSeconds", item.actualSeconds); put("phase", item.phase); put("round", item.round); put("status", item.status)
     }
 
     private fun goalJson(item: GoalEntity) = JSONObject().apply {
         put("id", item.id); put("title", item.title); put("metric", item.metric); put("targetValue", item.targetValue)
         put("period", item.period); put("startDate", item.startDate); putNullable("endDate", item.endDate); putNullable("projectId", item.projectId)
-        put("isArchived", item.isArchived); put("createdAt", item.createdAt); put("updatedAt", item.updatedAt)
+        put("isArchived", item.isArchived); put("createdAt", item.createdAt); put("updatedAt", item.updatedAt); putNullable("deletedAt", item.deletedAt)
     }
 
     private fun countdownJson(item: CountdownEntity) = JSONObject().apply {
         put("id", item.id); put("title", item.title); put("note", item.note); put("eventAtEpochMillis", item.eventAtEpochMillis)
         putNullable("reminderMinutesBefore", item.reminderMinutesBefore); put("isCompleted", item.isCompleted); put("isArchived", item.isArchived)
-        put("createdAt", item.createdAt); put("updatedAt", item.updatedAt)
+        put("createdAt", item.createdAt); put("updatedAt", item.updatedAt); putNullable("deletedAt", item.deletedAt)
     }
 
     private fun reminderJson(item: ReminderEntity) = JSONObject().apply {
@@ -403,19 +472,33 @@ class BackupService(
         put("restDaysCsv", item.restDaysCsv)
         put("soundEnabled", item.soundEnabled)
         put("vibrationEnabled", item.vibrationEnabled)
+        put("focusFeedbackMode", item.focusFeedbackMode)
+        put("reminderFeedbackMode", item.reminderFeedbackMode)
+        put("countdownFeedbackMode", item.countdownFeedbackMode)
+        put("focusAutoStartBreaks", item.focusAutoStartBreaks)
+        putNullable("pendingUpdateVersionName", item.pendingUpdateVersionName)
+    }
+
+    private fun feedbackAudioJson(settings: AppSettings): JSONObject? {
+        val path = settings.feedbackAudioPath ?: return null
+        val file = ownedAudioFile(path)?.takeIf { it.isFile && it.length() in 1..MAX_AUDIO_BYTES } ?: return null
+        val bytes = runCatching { file.readBytes() }.getOrNull()?.takeIf { it.size.toLong() <= MAX_AUDIO_BYTES } ?: return null
+        return JSONObject()
+            .put("displayName", settings.feedbackAudioName ?: file.name)
+            .put("bytes", encode(bytes))
     }
 
     private fun parseProject(o: JSONObject) = ProjectEntity(
         id = o.requiredString("id"), title = o.requiredString("title"), type = o.optString("type", "技能"),
         description = o.optString("description", ""), tagCsv = o.optString("tagCsv", ""), colorHex = o.optString("colorHex", "#64D8CB"),
-        isArchived = o.optBoolean("isArchived", false), isPaused = o.optBoolean("isPaused", false), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"),
+        isArchived = o.optBoolean("isArchived", false), isPaused = o.optBoolean("isPaused", false), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"), deletedAt = o.nullableLong("deletedAt"),
     )
 
     private fun parseTask(o: JSONObject) = LearningTaskEntity(
         id = o.requiredString("id"), projectId = o.requiredString("projectId"), title = o.requiredString("title"),
         prompt = o.optString("prompt", ""), notes = o.optString("notes", ""), source = o.optString("source", ""), isRequired = o.optBoolean("isRequired", true),
         isArchived = o.optBoolean("isArchived", false), hasLearned = o.optBoolean("hasLearned", false), initialLearningDate = o.nullableString("initialLearningDate"), stage = o.optInt("stage", 0),
-        nextReviewDate = o.nullableString("nextReviewDate"), snoozedUntil = o.nullableString("snoozedUntil"), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"),
+        nextReviewDate = o.nullableString("nextReviewDate"), snoozedUntil = o.nullableString("snoozedUntil"), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"), deletedAt = o.nullableLong("deletedAt"),
     )
 
     private fun parseReviewLog(o: JSONObject) = ReviewLogEntity(
@@ -423,10 +506,15 @@ class BackupService(
         previousStage = o.optInt("previousStage"), nextStage = o.optInt("nextStage"), nextReviewDate = o.requiredString("nextReviewDate"), createdAt = o.optLong("createdAt"),
     )
 
+    private fun parseReviewCorrection(o: JSONObject) = ReviewCorrectionEntity(
+        id = o.requiredString("id"), taskId = o.requiredString("taskId"), correctedStage = o.optInt("correctedStage"),
+        correctedNextReviewDate = o.requiredString("correctedNextReviewDate"), reason = o.optString("reason", ""), createdAt = o.optLong("createdAt"),
+    )
+
     private fun parseReadingPlan(o: JSONObject) = ReadingPlanEntity(
         id = o.requiredString("id"), projectId = o.requiredString("projectId"), title = o.requiredString("title"), totalPages = o.optInt("totalPages"), dailyTarget = o.optInt("dailyTarget"),
         currentPage = o.optInt("currentPage"), startDate = o.requiredString("startDate"), deadline = o.nullableString("deadline"), isPaused = o.optBoolean("isPaused"), isArchived = o.optBoolean("isArchived"),
-        createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"),
+        createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"), deletedAt = o.nullableLong("deletedAt"),
     )
 
     private fun parseReadingTarget(o: JSONObject) = ReadingTargetEntity(
@@ -440,25 +528,31 @@ class BackupService(
         startPage = o.nullableInt("startPage"), endPage = o.nullableInt("endPage"), createdAt = o.optLong("createdAt"),
     )
 
+    private fun parseReadingAdjustment(o: JSONObject) = ReadingAdjustmentEntity(
+        id = o.requiredString("id"), planId = o.requiredString("planId"), localDate = o.requiredString("localDate"),
+        deltaPages = o.optInt("deltaPages"), reason = o.optString("reason", ""), createdAt = o.optLong("createdAt"),
+    )
+
     private fun parseTodo(o: JSONObject) = TodoEntity(
         id = o.requiredString("id"), title = o.requiredString("title"), notes = o.optString("notes", ""), isRequired = o.optBoolean("isRequired", true),
         repeatRule = o.optString("repeatRule", "ONCE"), customRepeatDays = o.optString("customRepeatDays", ""), dueDate = o.nullableString("dueDate"),
-        completedDates = o.optString("completedDates", ""), isArchived = o.optBoolean("isArchived", false), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"),
+        completedDates = o.optString("completedDates", ""), isArchived = o.optBoolean("isArchived", false), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"), projectId = o.nullableString("projectId"), deletedAt = o.nullableLong("deletedAt"), recurrenceSourceId = o.nullableString("recurrenceSourceId"), missedPromptPolicy = o.optString("missedPromptPolicy", "ASK"),
     )
 
     private fun parseFocus(o: JSONObject) = FocusSessionEntity(
         id = o.requiredString("id"), projectId = o.nullableString("projectId"), taskId = o.nullableString("taskId"), startedAt = o.optLong("startedAt"), endedAt = o.nullableLong("endedAt"),
         plannedMinutes = o.optInt("plannedMinutes"), actualMinutes = o.optInt("actualMinutes"), status = o.optString("status", "COMPLETED"),
+        actualSeconds = o.optInt("actualSeconds", o.optInt("actualMinutes") * 60), phase = o.optString("phase", "WORK"), round = o.optInt("round", 1),
     )
 
     private fun parseGoal(o: JSONObject) = GoalEntity(
         id = o.requiredString("id"), title = o.requiredString("title"), metric = o.optString("metric", "FOCUS_MINUTES"), targetValue = o.optInt("targetValue"), period = o.optString("period", "DAILY"),
-        startDate = o.requiredString("startDate"), endDate = o.nullableString("endDate"), projectId = o.nullableString("projectId"), isArchived = o.optBoolean("isArchived"), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"),
+        startDate = o.requiredString("startDate"), endDate = o.nullableString("endDate"), projectId = o.nullableString("projectId"), isArchived = o.optBoolean("isArchived"), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"), deletedAt = o.nullableLong("deletedAt"),
     )
 
     private fun parseCountdown(o: JSONObject) = CountdownEntity(
         id = o.requiredString("id"), title = o.requiredString("title"), note = o.optString("note", ""), eventAtEpochMillis = o.optLong("eventAtEpochMillis"),
-        reminderMinutesBefore = o.nullableInt("reminderMinutesBefore"), isCompleted = o.optBoolean("isCompleted"), isArchived = o.optBoolean("isArchived"), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"),
+        reminderMinutesBefore = o.nullableInt("reminderMinutesBefore"), isCompleted = o.optBoolean("isCompleted"), isArchived = o.optBoolean("isArchived"), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"), deletedAt = o.nullableLong("deletedAt"),
     )
 
     private fun parseReminder(o: JSONObject) = ReminderEntity(
@@ -482,7 +576,66 @@ class BackupService(
             restDaysCsv = restDays,
             soundEnabled = o.optBoolean("soundEnabled", true),
             vibrationEnabled = o.optBoolean("vibrationEnabled", true),
+            focusFeedbackMode = o.optString("focusFeedbackMode", "GLOBAL"),
+            reminderFeedbackMode = o.optString("reminderFeedbackMode", "GLOBAL"),
+            countdownFeedbackMode = o.optString("countdownFeedbackMode", "GLOBAL"),
+            focusAutoStartBreaks = o.optBoolean("focusAutoStartBreaks", false),
+            pendingUpdateVersionName = o.nullableString("pendingUpdateVersionName"),
         )
+    }
+
+    private fun parseFeedbackAudio(o: JSONObject?): BackupAudio? {
+        if (o == null) return null
+        val displayName = o.optString("displayName", "自定义音效").substringAfterLast('/').take(80).ifBlank { "自定义音效" }
+        val bytes = runCatching { decode(o.requiredString("bytes")) }.getOrElse { throw BackupException("备份音效数据无效", it) }
+        if (bytes.isEmpty() || bytes.size.toLong() > MAX_AUDIO_BYTES) throw BackupException("备份音效文件过大")
+        return BackupAudio(displayName, bytes)
+    }
+
+    private fun restoreAudio(audio: BackupAudio?): RestoredAudio? {
+        if (audio == null || feedbackAudioDirectory == null) return null
+        feedbackAudioDirectory.mkdirs()
+        val destination = File(feedbackAudioDirectory, "restored-${UUID.randomUUID()}.audio")
+        return runCatching {
+            destination.writeBytes(audio.bytes)
+            RestoredAudio(destination.absolutePath, audio.displayName)
+        }.getOrElse {
+            destination.delete()
+            throw BackupException("无法恢复备份音效", it)
+        }
+    }
+
+    private fun deleteOwnedAudio(path: String?) {
+        ownedAudioFile(path)?.delete()
+    }
+
+    private fun ownedAudioFile(path: String?): File? {
+        if (path.isNullOrBlank()) return null
+        val root = feedbackAudioDirectory ?: return null
+        val directory = runCatching { root.canonicalFile }.getOrNull() ?: return null
+        val file = runCatching { File(path).canonicalFile }.getOrNull() ?: return null
+        return file.takeIf { it.path.startsWith(directory.path + File.separator) }
+    }
+
+    private suspend fun createSafetySnapshot(password: String) {
+        val directory = safetySnapshotDirectory ?: return
+        directory.mkdirs()
+        val generatedPassword = password.takeIf { it.length >= MIN_PASSWORD_LENGTH }
+            ?: "snapshot-${UUID.randomUUID()}"
+        val bytes = export(encrypted = true, password = generatedPassword)
+        val stamp = System.currentTimeMillis()
+        File(directory, "snapshot-$stamp.llbackup").writeBytes(bytes)
+        File(directory, "snapshot-$stamp.key").writeText(generatedPassword, StandardCharsets.UTF_8)
+        val cutoff = System.currentTimeMillis() - SNAPSHOT_RETENTION_MILLIS
+        directory.listFiles()?.filter { it.name.startsWith("snapshot-") && it.name.endsWith(".llbackup") }
+            ?.sortedByDescending(File::lastModified)
+            ?.drop(MAX_SNAPSHOTS)
+            ?.plus(directory.listFiles()?.filter { it.name.endsWith(".llbackup") && it.lastModified() < cutoff }.orEmpty())
+            ?.distinct()
+            ?.forEach { file ->
+                file.delete()
+                File(file.parentFile, file.nameWithoutExtension + ".key").delete()
+            }
     }
 
     private fun JSONObject.putNullable(key: String, value: Any?): JSONObject {
@@ -499,9 +652,12 @@ class BackupService(
     private fun decode(value: String): ByteArray = Base64.decode(value, Base64.NO_WRAP)
 
     private companion object {
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 3
+        val LEGACY_SCHEMA_VERSIONS = setOf(1, 2)
         const val PLAIN_FORMAT = "learn-list-json-v1"
         const val ENCRYPTED_FORMAT = "learn-list-encrypted-v1"
+        val PLAIN_FORMATS = setOf(PLAIN_FORMAT)
+        val ENCRYPTED_FORMATS = setOf(ENCRYPTED_FORMAT)
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val PBKDF2_ITERATIONS = 210_000
         const val KEY_BITS = 256
@@ -509,7 +665,9 @@ class BackupService(
         const val SALT_SIZE = 16
         const val IV_SIZE = 12
         const val MAX_BACKUP_BYTES = 20 * 1024 * 1024
+        const val MAX_AUDIO_BYTES = 5L * 1024L * 1024L
         const val MIN_PASSWORD_LENGTH = 8
+        const val MAX_SNAPSHOTS = 3
+        const val SNAPSHOT_RETENTION_MILLIS = 30L * 24L * 60L * 60L * 1000L
     }
 }
-

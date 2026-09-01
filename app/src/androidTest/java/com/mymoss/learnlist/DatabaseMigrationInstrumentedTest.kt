@@ -36,6 +36,26 @@ class DatabaseMigrationInstrumentedTest {
         }
     }
 
+    @Test
+    fun migratesV6ToV7WithRecurringTodoPromptFields() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "learn-list-migration-v7-${System.nanoTime()}.db"
+        val helper = createV6Helper(context, databaseName)
+        try {
+            val database = helper.writableDatabase
+            database.execSQL("INSERT INTO todos (id, title, notes, isRequired, repeatRule, customRepeatDays, dueDate, completedDates, isArchived, createdAt, updatedAt, projectId, deletedAt) VALUES ('todo-1', '旧重复待办', '', 1, 'DAILY', '', '2026-08-31', '', 0, 1, 1, NULL, NULL)")
+            LearnListDatabase.MIGRATION_6_7.migrate(database)
+            assertTrue(columnNames(database, "todos").containsAll(setOf("recurrenceSourceId", "missedPromptPolicy")))
+            database.query("SELECT missedPromptPolicy FROM todos WHERE id = 'todo-1'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("ASK", cursor.getString(0))
+            }
+        } finally {
+            helper.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     private fun createV1Helper(context: Context, databaseName: String): SupportSQLiteOpenHelper =
         FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
@@ -45,6 +65,20 @@ class DatabaseMigrationInstrumentedTest {
                         db.execSQL(
                             "CREATE TABLE learning_tasks (id TEXT NOT NULL, projectId TEXT NOT NULL, title TEXT NOT NULL, prompt TEXT NOT NULL, notes TEXT NOT NULL, source TEXT NOT NULL, isRequired INTEGER NOT NULL, isArchived INTEGER NOT NULL, hasLearned INTEGER NOT NULL, stage INTEGER NOT NULL, nextReviewDate TEXT, snoozedUntil TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(id))",
                         )
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build(),
+        )
+
+    private fun createV6Helper(context: Context, databaseName: String): SupportSQLiteOpenHelper =
+        FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(databaseName)
+                .callback(object : SupportSQLiteOpenHelper.Callback(6) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE todos (id TEXT NOT NULL, title TEXT NOT NULL, notes TEXT NOT NULL, isRequired INTEGER NOT NULL, repeatRule TEXT NOT NULL, customRepeatDays TEXT NOT NULL, dueDate TEXT, completedDates TEXT NOT NULL, isArchived INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, projectId TEXT, deletedAt INTEGER, PRIMARY KEY(id))")
                     }
 
                     override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
@@ -66,4 +100,3 @@ class DatabaseMigrationInstrumentedTest {
             }
         }
 }
-

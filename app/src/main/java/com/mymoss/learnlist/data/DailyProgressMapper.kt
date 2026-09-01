@@ -4,6 +4,7 @@ import com.mymoss.learnlist.data.local.PageLogEntity
 import com.mymoss.learnlist.data.local.ProjectEntity
 import com.mymoss.learnlist.data.local.ReadingPlanEntity
 import com.mymoss.learnlist.data.local.ReadingTargetEntity
+import com.mymoss.learnlist.data.local.ReadingAdjustmentEntity
 import com.mymoss.learnlist.data.local.ReviewLogEntity
 import com.mymoss.learnlist.data.local.LearningTaskEntity
 import com.mymoss.learnlist.data.local.TodoEntity
@@ -28,6 +29,7 @@ object DailyProgressMapper {
         readingPlans = snapshot.readingPlans,
         readingTargets = snapshot.readingTargets,
         pageLogs = snapshot.pageLogs,
+        readingAdjustments = snapshot.readingAdjustments,
         todos = snapshot.todos,
     )
 
@@ -38,26 +40,32 @@ object DailyProgressMapper {
         readingPlans: List<ReadingPlanEntity>,
         readingTargets: List<ReadingTargetEntity>,
         pageLogs: List<PageLogEntity>,
+        readingAdjustments: List<ReadingAdjustmentEntity> = emptyList(),
         todos: List<TodoEntity>,
     ): DailyProgressInput {
         val reviewedDatesByTask = reviewLogs.groupBy(ReviewLogEntity::taskId).mapValues { (_, logs) ->
             logs.mapNotNull { it.reviewedOn.asLocalDate() }.toSet()
         }
-        val pagesByPlan = pageLogs.groupBy(PageLogEntity::planId).mapValues { (_, logs) ->
-            logs.groupingBy { it.localDate.asLocalDate() }
-                .fold(0) { total, log -> total + log.pagesRead.coerceAtLeast(0) }
-                .filterKeys { it != null }
-                .mapKeys { requireNotNull(it.key) }
-        }
+        val pagesByPlan = (pageLogs.groupBy(PageLogEntity::planId).keys + readingAdjustments.map(ReadingAdjustmentEntity::planId))
+            .distinct()
+            .associateWith { planId ->
+                val logged = pageLogs.filter { it.planId == planId }.groupingBy { it.localDate.asLocalDate() }
+                    .fold(0) { total, log -> total + log.pagesRead.coerceAtLeast(0) }
+                val adjustments = readingAdjustments.filter { it.planId == planId }.groupingBy { it.localDate.asLocalDate() }
+                    .fold(0) { total, adjustment -> total + adjustment.deltaPages }
+                (logged.keys + adjustments.keys).filterNotNull().associateWith { date ->
+                    ((logged[date] ?: 0) + (adjustments[date] ?: 0)).coerceAtLeast(0)
+                }
+            }
         val targetsByPlan = readingTargets.groupBy(ReadingTargetEntity::planId).mapValues { (_, targets) ->
             targets.mapNotNull { target -> target.localDate.asLocalDate()?.let { it to target.targetPages } }.toMap()
         }
 
         return DailyProgressInput(
-            projects = projects.map { project ->
+            projects = projects.filter { it.deletedAt == null }.map { project ->
                 DailyProjectProgress(project.id, project.isArchived, project.isPaused)
             },
-            tasks = tasks.map { task ->
+            tasks = tasks.filter { it.deletedAt == null }.map { task ->
                 DailyTaskProgress(
                     id = task.id,
                     projectId = task.projectId,
@@ -71,7 +79,7 @@ object DailyProgressMapper {
                     reviewedDates = reviewedDatesByTask[task.id].orEmpty(),
                 )
             },
-            readings = readingPlans.map { plan ->
+            readings = readingPlans.filter { it.deletedAt == null }.map { plan ->
                 DailyReadingProgress(
                     id = plan.id,
                     projectId = plan.projectId,
@@ -85,9 +93,10 @@ object DailyProgressMapper {
                     targetsByDate = targetsByPlan[plan.id].orEmpty(),
                 )
             },
-            todos = todos.map { todo ->
+            todos = todos.filter { it.deletedAt == null }.map { todo ->
                 DailyTodoProgress(
                     id = todo.id,
+                    projectId = todo.projectId,
                     isRequired = todo.isRequired,
                     isArchived = todo.isArchived,
                     repeatRule = runCatching { TodoRepeatRule.valueOf(todo.repeatRule) }.getOrDefault(TodoRepeatRule.ONCE),
@@ -109,4 +118,3 @@ object DailyProgressMapper {
 
     private fun Long.toLocalDate(): LocalDate = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
 }
-

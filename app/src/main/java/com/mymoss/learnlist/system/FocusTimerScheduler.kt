@@ -5,14 +5,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import java.time.Clock
 
 /** Schedules one durable alarm for the currently running focus session. */
-class FocusTimerScheduler(context: Context) {
+class FocusTimerScheduler(context: Context, private val clock: Clock = Clock.systemDefaultZone()) {
     private val context = context.applicationContext
     private val alarmManager = context.getSystemService(AlarmManager::class.java)
 
     fun schedule(endAtEpochMillis: Long) {
-        if (endAtEpochMillis <= System.currentTimeMillis()) {
+        if (endAtEpochMillis <= clock.millis()) {
             cancel()
             return
         }

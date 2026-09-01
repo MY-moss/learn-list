@@ -90,6 +90,7 @@ class DailyProgressHistoryTest {
         assertEquals(4, summary.totalRequired)
         assertEquals(75, summary.percent)
     }
+
     @Test
     fun `finishing a reading plan counts today's action when the remainder is below the target`() {
         val project = DailyProjectProgress("book", isArchived = false, isPaused = false)
@@ -119,6 +120,4 @@ class DailyProgressHistoryTest {
         assertEquals(1, summary.totalRequired)
         assertEquals(100, summary.percent)
     }
-
 }
-

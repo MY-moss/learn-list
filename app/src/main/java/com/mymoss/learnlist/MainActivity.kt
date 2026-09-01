@@ -22,11 +22,12 @@ import com.mymoss.learnlist.data.backup.PendingBackupImport
 import com.mymoss.learnlist.data.backup.BackupService
 import com.mymoss.learnlist.system.ReleaseChecker
 import com.mymoss.learnlist.system.FeedbackManager
+import com.mymoss.learnlist.system.FeedbackAudioManager
 import com.mymoss.learnlist.system.FocusTimerScheduler
 import com.mymoss.learnlist.system.FocusTimerService
 import com.mymoss.learnlist.system.ReminderScheduler
+import com.mymoss.learnlist.system.UpdateDownloadService
 import com.mymoss.learnlist.system.UpdateDownloadStage
-import com.mymoss.learnlist.system.UpdateInstaller
 import com.mymoss.learnlist.ui.LearnListApp
 import com.mymoss.learnlist.ui.UpdatePhase
 import com.mymoss.learnlist.ui.UpdateUiState
@@ -45,7 +46,14 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val app: LearnListApplication get() = application as LearnListApplication
-    private val backupService by lazy { BackupService(app.repository, settingsRepository) }
+    private val backupService by lazy {
+        BackupService(
+            app.repository,
+            settingsRepository,
+            java.io.File(filesDir, "backup-snapshots"),
+            java.io.File(filesDir, "feedback-audio"),
+        )
+    }
     private val settingsRepository by lazy { SettingsRepository(this) }
     private val focusTimerScheduler by lazy { FocusTimerScheduler(this) }
     private var pendingExport: ByteArray? = null
@@ -76,6 +84,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val openFeedbackAudio = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                val imported = FeedbackAudioManager.importToPrivateDirectory(applicationContext, uri)
+                val previous = settingsRepository.settings.first().feedbackAudioPath
+                settingsRepository.update { it.copy(feedbackAudioPath = imported.path, feedbackAudioName = imported.displayName) }
+                FeedbackAudioManager.deleteIfOwned(applicationContext, previous)
+                imported.displayName
+            }.onSuccess { showToast("已导入音效：$it") }
+                .onFailure { showToast("导入音效失败：${it.message}") }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val feedbackContext = applicationContext
@@ -88,11 +110,13 @@ class MainActivity : ComponentActivity() {
                         repository = app.repository,
                         settingsRepository = settingsRepository,
                         focusTimerScheduler = focusTimerScheduler,
-                        onFocusStarted = { startedAt, endAt, plannedMinutes ->
-                            FocusTimerService.start(applicationContext, startedAt, endAt, plannedMinutes)
+                        onFocusStarted = { startedAt, endAt, plannedMinutes, phase, round ->
+                            FocusTimerService.start(applicationContext, startedAt, endAt, plannedMinutes, phase, round)
                         },
                         onFocusStopped = { FocusTimerService.stop(applicationContext) },
                         onFocusCompleted = { settings -> FeedbackManager.play(feedbackContext, settings) },
+                        onFocusPaused = { FocusTimerService.pause(applicationContext) },
+                        onFocusSkipped = { FocusTimerService.skip(applicationContext) },
                     ),
                 )
                 LearnListApp(
@@ -102,17 +126,47 @@ class MainActivity : ComponentActivity() {
                     onCheckForUpdate = ::checkForUpdate,
                     updateState = updateState.collectAsState().value,
                     onDownloadUpdate = ::downloadAvailableUpdate,
+                    onInstallUpdate = ::installCachedUpdate,
+                    onCancelUpdate = ::cancelUpdateDownload,
                     onDismissUpdate = { updateState.update { it.copy(available = null) } },
                     onRequestNotifications = ::requestNotificationPermission,
                     onRequestExactAlarms = ::requestExactAlarmPermission,
                     soundEnabled = appSettings?.soundEnabled ?: true,
                     vibrationEnabled = appSettings?.vibrationEnabled ?: true,
+                    focusFeedbackMode = appSettings?.focusFeedbackMode ?: "GLOBAL",
+                    reminderFeedbackMode = appSettings?.reminderFeedbackMode ?: "GLOBAL",
+                    countdownFeedbackMode = appSettings?.countdownFeedbackMode ?: "GLOBAL",
+                    feedbackAudioName = appSettings?.feedbackAudioName,
+                    reviewBatchSize = appSettings?.reviewLimit ?: 20,
+                    onReviewBatchSizeChange = { size ->
+                        lifecycleScope.launch { settingsRepository.update { it.copy(reviewLimit = size) } }
+                    },
+                    focusAutoStartBreaks = appSettings?.focusAutoStartBreaks ?: false,
+                    onFocusAutoStartBreaksChange = { enabled ->
+                        lifecycleScope.launch { settingsRepository.update { it.copy(focusAutoStartBreaks = enabled) } }
+                    },
                     onSoundEnabledChange = { enabled ->
                         lifecycleScope.launch { settingsRepository.update { it.copy(soundEnabled = enabled) } }
                     },
                     onVibrationEnabledChange = { enabled ->
                         lifecycleScope.launch { settingsRepository.update { it.copy(vibrationEnabled = enabled) } }
                     },
+                    onFocusFeedbackModeChange = { mode ->
+                        lifecycleScope.launch { settingsRepository.update { it.copy(focusFeedbackMode = mode) } }
+                    },
+                    onReminderFeedbackModeChange = { mode ->
+                        lifecycleScope.launch { settingsRepository.update { it.copy(reminderFeedbackMode = mode) } }
+                    },
+                    onCountdownFeedbackModeChange = { mode ->
+                        lifecycleScope.launch { settingsRepository.update { it.copy(countdownFeedbackMode = mode) } }
+                    },
+                    onChooseFeedbackAudio = ::chooseFeedbackAudio,
+                    onPreviewFeedbackAudio = {
+                        lifecycleScope.launch {
+                            FeedbackAudioManager.preview(applicationContext, settingsRepository.settings.first())
+                        }
+                    },
+                    onClearFeedbackAudio = ::clearFeedbackAudio,
                     onboardingCompleted = appSettings?.hasCompletedOnboarding,
                     onCompleteOnboarding = {
                         lifecycleScope.launch {
@@ -131,12 +185,38 @@ class MainActivity : ComponentActivity() {
                 runCatching { reminderScheduler.rescheduleAll() }
             }
         }
+        lifecycleScope.launch {
+            settingsRepository.settings.collectLatest { settings ->
+                val info = settings.toUpdateInfoOrNull() ?: return@collectLatest
+                val progress = settings.updateTransferTotalBytes
+                    ?.takeIf { it > 0L }
+                    ?.let { total -> (settings.updateTransferDownloadedBytes.toFloat() / total).coerceIn(0f, 1f) }
+                updateState.update {
+                    it.copy(
+                        available = info,
+                        isDownloading = settings.updateTransferActive,
+                        phase = settings.updateTransferStage.toUpdatePhase(),
+                        downloadProgress = progress,
+                        downloadedBytes = settings.updateTransferDownloadedBytes,
+                        totalDownloadBytes = settings.updateTransferTotalBytes,
+                        statusMessage = settings.updateTransferStatus ?: it.statusMessage,
+                        errorMessage = settings.updateTransferError,
+                    )
+                }
+            }
+        }
+        lifecycleScope.launch {
+            if (settingsRepository.settings.first().updateTransferActive) {
+                UpdateDownloadService.sync(applicationContext)
+            }
+        }
         automaticUpdateJob = lifecycleScope.launch { checkAutomatically() }
     }
 
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
+            checkInstallResult()
             runCatching { ReminderScheduler(this@MainActivity, app.repository).rescheduleAll() }
         }
         if (automaticUpdateJob?.isActive != true) {
@@ -176,6 +256,19 @@ class MainActivity : ComponentActivity() {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_REQUEST_CODE)
         } else {
             showToast("通知权限已开启")
+        }
+    }
+
+    private fun chooseFeedbackAudio() {
+        openFeedbackAudio.launch(arrayOf("audio/*"))
+    }
+
+    private fun clearFeedbackAudio() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val previous = settingsRepository.settings.first().feedbackAudioPath
+            FeedbackAudioManager.deleteIfOwned(applicationContext, previous)
+            settingsRepository.update { it.copy(feedbackAudioPath = null, feedbackAudioName = null) }
+            showToast("已恢复系统提示音")
         }
     }
 
@@ -249,75 +342,67 @@ class MainActivity : ComponentActivity() {
 
     private fun downloadAvailableUpdate() {
         val info = updateState.value.available ?: return
-        lifecycleScope.launch {
-            updateState.update {
-                it.copy(
-                    isDownloading = true,
-                    phase = UpdatePhase.CONNECTING,
-                    downloadProgress = null,
-                    downloadedBytes = 0L,
-                    totalDownloadBytes = null,
-                    errorMessage = null,
-                    statusMessage = "正在连接 GitHub Release…",
-                )
-            }
-            runCatching {
-                val apk = UpdateInstaller(this@MainActivity).downloadAndVerify(info) { progress ->
-                    updateState.update { current ->
-                        val fraction = progress.totalBytes
-                            ?.takeIf { total -> total > 0L }
-                            ?.let { total -> (progress.downloadedBytes.toFloat() / total).coerceIn(0f, 1f) }
-                        current.copy(
-                            phase = when (progress.stage) {
-                                UpdateDownloadStage.CONNECTING -> UpdatePhase.CONNECTING
-                                UpdateDownloadStage.DOWNLOADING -> UpdatePhase.DOWNLOADING
-                                UpdateDownloadStage.VERIFYING -> UpdatePhase.VERIFYING
-                            },
-                            downloadProgress = fraction,
-                            downloadedBytes = progress.downloadedBytes,
-                            totalDownloadBytes = progress.totalBytes,
-                            statusMessage = when (progress.stage) {
-                                UpdateDownloadStage.CONNECTING -> "正在连接 GitHub Release…"
-                                UpdateDownloadStage.DOWNLOADING -> "正在下载 v${info.versionName}…"
-                                UpdateDownloadStage.VERIFYING -> "正在校验 SHA-256…"
-                            },
-                        )
-                    }
-                }
-                updateState.update {
-                    it.copy(
-                        phase = UpdatePhase.INSTALLING,
-                        downloadProgress = 1f,
-                        statusMessage = "安装包已校验，正在打开系统安装器…",
-                    )
-                }
-                withContext(Dispatchers.Main) { UpdateInstaller(this@MainActivity).install(apk) }
-            }.fold(
-                onSuccess = { installerOpened ->
-                    updateState.update {
-                        it.copy(
-                            isDownloading = false,
-                            phase = UpdatePhase.IDLE,
-                            downloadProgress = null,
-                            statusMessage = if (installerOpened) "安装确认已打开，请按系统提示完成更新" else "请在系统设置中允许本应用安装未知来源",
-                        )
-                    }
-                    showToast(if (installerOpened) "安装确认已打开" else "请允许安装未知来源后重试")
-                },
-                onFailure = { error ->
-                    updateState.update {
-                        it.copy(
-                            isDownloading = false,
-                            phase = UpdatePhase.IDLE,
-                            downloadProgress = null,
-                            errorMessage = error.message ?: "更新失败",
-                            statusMessage = null,
-                        )
-                    }
-                    showToast("更新失败：${error.message}")
-                },
+        updateState.update {
+            it.copy(
+                available = info,
+                isDownloading = true,
+                phase = UpdatePhase.CONNECTING,
+                downloadProgress = null,
+                downloadedBytes = 0L,
+                totalDownloadBytes = null,
+                errorMessage = null,
+                statusMessage = "正在连接 GitHub Release…",
             )
         }
+        UpdateDownloadService.start(applicationContext, info)
+    }
+
+    private fun installCachedUpdate() {
+        val info = updateState.value.available ?: return
+        updateState.update {
+            it.copy(
+                isDownloading = true,
+                phase = UpdatePhase.VERIFYING,
+                downloadProgress = null,
+                downloadedBytes = 0L,
+                totalDownloadBytes = null,
+                errorMessage = null,
+                statusMessage = "正在验证已下载的更新包…",
+            )
+        }
+        UpdateDownloadService.installCached(applicationContext, info)
+    }
+
+    private fun cancelUpdateDownload() {
+        UpdateDownloadService.pause(applicationContext)
+        updateState.update {
+            it.copy(
+                isDownloading = false,
+                phase = UpdatePhase.IDLE,
+                downloadProgress = null,
+                statusMessage = "下载已暂停，再次点击将从断点继续",
+                errorMessage = null,
+            )
+        }
+    }
+
+    private fun com.mymoss.learnlist.data.AppSettings.toUpdateInfoOrNull(): com.mymoss.learnlist.system.UpdateInfo? =
+        com.mymoss.learnlist.system.UpdateInfo(
+            tagName = updateTransferTagName.orEmpty(),
+            versionName = updateTransferVersionName.orEmpty(),
+            downloadUrl = updateTransferDownloadUrl.orEmpty(),
+            sha256Url = updateTransferSha256Url,
+            releaseNotes = updateTransferReleaseNotes,
+        ).takeIf { it.tagName.isNotBlank() && it.versionName.isNotBlank() && it.downloadUrl.isNotBlank() && it.sha256Url != null }
+
+    private fun String?.toUpdatePhase(): UpdatePhase = when (this) {
+        UpdateDownloadStage.CONNECTING.name -> UpdatePhase.CONNECTING
+        UpdateDownloadStage.RESUMING.name -> UpdatePhase.RESUMING
+        UpdateDownloadStage.DOWNLOADING.name -> UpdatePhase.DOWNLOADING
+        UpdateDownloadStage.VERIFYING.name -> UpdatePhase.VERIFYING
+        UpdateDownloadStage.CERTIFICATE.name -> UpdatePhase.CERTIFICATE
+        "INSTALLING" -> UpdatePhase.INSTALLING
+        else -> UpdatePhase.IDLE
     }
 
     private suspend fun checkAutomatically() {
@@ -326,6 +411,38 @@ class MainActivity : ComponentActivity() {
         updateState.update { it.copy(lastCheckedAtEpochMillis = settings.lastUpdateCheckEpochMillis.takeIf { value -> value > 0L }) }
         if (now - settings.lastUpdateCheckEpochMillis < Duration.ofHours(24).toMillis()) return
         performUpdateCheck(manual = false)
+    }
+
+    private suspend fun checkInstallResult() {
+        val expectedVersion = settingsRepository.settings.first().pendingUpdateVersionName ?: return
+        if (BuildConfig.VERSION_NAME != expectedVersion) return
+        settingsRepository.update {
+            it.copy(
+                pendingUpdateVersionName = null,
+                updateTransferActive = false,
+                updateTransferTagName = null,
+                updateTransferVersionName = null,
+                updateTransferDownloadUrl = null,
+                updateTransferSha256Url = null,
+                updateTransferReleaseNotes = "",
+                updateTransferStage = null,
+                updateTransferDownloadedBytes = 0L,
+                updateTransferTotalBytes = null,
+                updateTransferStatus = null,
+                updateTransferError = null,
+            )
+        }
+        updateState.update {
+            it.copy(
+                available = null,
+                isDownloading = false,
+                phase = UpdatePhase.IDLE,
+                downloadProgress = null,
+                statusMessage = "v$expectedVersion 已安装完成",
+                errorMessage = null,
+            )
+        }
+        showToast("Learn List v$expectedVersion 已更新完成")
     }
 
     private fun readBackup(uri: android.net.Uri): ByteArray {
@@ -352,4 +469,3 @@ class MainActivity : ComponentActivity() {
 
     private companion object { const val NOTIFICATION_REQUEST_CODE = 1001 }
 }
-

@@ -27,8 +27,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -37,10 +38,12 @@ import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -113,6 +116,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -133,6 +137,7 @@ import com.mymoss.learnlist.data.local.LearningTaskEntity
 import com.mymoss.learnlist.data.local.PageLogEntity
 import com.mymoss.learnlist.data.local.ProjectEntity
 import com.mymoss.learnlist.data.local.ReadingPlanEntity
+import com.mymoss.learnlist.data.local.ReadingAdjustmentEntity
 import com.mymoss.learnlist.data.local.ReadingTargetEntity
 import com.mymoss.learnlist.data.local.TodoEntity
 import com.mymoss.learnlist.domain.DailyProgressCalculator
@@ -148,6 +153,7 @@ import com.mymoss.learnlist.domain.TodoCompletion
 import com.mymoss.learnlist.domain.TodoRecurrence
 import com.mymoss.learnlist.domain.TodoRepeatRule
 import com.mymoss.learnlist.system.UpdateInfo
+import com.mymoss.learnlist.system.FocusTimerService
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
@@ -172,8 +178,10 @@ enum class UpdatePhase {
     IDLE,
     CHECKING,
     CONNECTING,
+    RESUMING,
     DOWNLOADING,
     VERIFYING,
+    CERTIFICATE,
     INSTALLING,
 }
 
@@ -199,13 +207,29 @@ fun LearnListApp(
     onCheckForUpdate: () -> Unit = {},
     updateState: UpdateUiState = UpdateUiState(),
     onDownloadUpdate: () -> Unit = {},
+    onInstallUpdate: () -> Unit = {},
+    onCancelUpdate: () -> Unit = {},
     onDismissUpdate: () -> Unit = {},
     onRequestNotifications: () -> Unit = {},
     onRequestExactAlarms: () -> Unit = {},
     soundEnabled: Boolean = true,
     vibrationEnabled: Boolean = true,
+    focusFeedbackMode: String = "GLOBAL",
+    reminderFeedbackMode: String = "GLOBAL",
+    countdownFeedbackMode: String = "GLOBAL",
+    feedbackAudioName: String? = null,
+    reviewBatchSize: Int = 20,
+    onReviewBatchSizeChange: (Int) -> Unit = {},
+    focusAutoStartBreaks: Boolean = false,
+    onFocusAutoStartBreaksChange: (Boolean) -> Unit = {},
     onSoundEnabledChange: (Boolean) -> Unit = {},
     onVibrationEnabledChange: (Boolean) -> Unit = {},
+    onFocusFeedbackModeChange: (String) -> Unit = {},
+    onReminderFeedbackModeChange: (String) -> Unit = {},
+    onCountdownFeedbackModeChange: (String) -> Unit = {},
+    onChooseFeedbackAudio: () -> Unit = {},
+    onPreviewFeedbackAudio: () -> Unit = {},
+    onClearFeedbackAudio: () -> Unit = {},
     onboardingCompleted: Boolean? = null,
     onCompleteOnboarding: () -> Unit = {},
     pendingImport: PendingBackupImport? = null,
@@ -224,13 +248,22 @@ fun LearnListApp(
     var showTodoDialog by rememberSaveable { mutableStateOf(false) }
     var showGoalDialog by rememberSaveable { mutableStateOf(false) }
     var showCountdownDialog by rememberSaveable { mutableStateOf(false) }
+    var editProject by remember { mutableStateOf<ProjectEntity?>(null) }
+    var editTask by remember { mutableStateOf<LearningTaskEntity?>(null) }
+    var editReadingPlan by remember { mutableStateOf<ReadingPlanEntity?>(null) }
+    var editTodo by remember { mutableStateOf<TodoEntity?>(null) }
+    var editGoal by remember { mutableStateOf<GoalEntity?>(null) }
+    var editCountdown by remember { mutableStateOf<CountdownEntity?>(null) }
     var showReviewDialog by remember { mutableStateOf<LearningTaskEntity?>(null) }
+    var showCorrectionDialog by remember { mutableStateOf<LearningTaskEntity?>(null) }
     var showPagesDialog by remember { mutableStateOf<ReadingPlanEntity?>(null) }
+    var showReadingAdjustmentDialog by remember { mutableStateOf<ReadingPlanEntity?>(null) }
     var showBackupDialog by rememberSaveable { mutableStateOf(false) }
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
     var showOnboarding by rememberSaveable { mutableStateOf(false) }
     val snackbars = remember { SnackbarHostState() }
     var currentDay by remember { mutableStateOf(LocalDate.now()) }
+    var followsToday by rememberSaveable { mutableStateOf(true) }
 
     LaunchedEffect(onboardingCompleted) {
         if (onboardingCompleted == false) showOnboarding = true
@@ -239,7 +272,7 @@ fun LearnListApp(
     LaunchedEffect(Unit) {
         while (true) {
             delay(60_000)
-            currentDay = LocalDate.now()
+            if (followsToday) currentDay = LocalDate.now()
         }
     }
 
@@ -357,7 +390,7 @@ fun LearnListApp(
             modifier = Modifier.fillMaxSize(),
         ) {
             composable(AppTab.TODAY.name) {
-                TodayScreen(state, padding, currentDay, viewModel, { showReviewDialog = it }, { showPagesDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget)
+                TodayScreen(state, padding, currentDay, { followsToday = it == LocalDate.now(); currentDay = it }, viewModel, { showReviewDialog = it }, { showCorrectionDialog = it }, { showPagesDialog = it }, { showReadingAdjustmentDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget, reviewBatchSize)
             }
             composable(AppTab.LEARN.name) {
                 LearnScreen(
@@ -369,16 +402,37 @@ fun LearnListApp(
                     onPages = { showPagesDialog = it },
                     onRebalance = viewModel::rebalanceReading,
                     onAdjustTarget = viewModel::adjustReadingTarget,
-                    onInitialLearn = viewModel::initialLearn,
+                    onInitialLearn = { taskId, date -> viewModel.initialLearn(taskId, date) },
                     onReview = { showReviewDialog = it },
+                    onCorrectReview = { showCorrectionDialog = it },
+                    onAdjustReading = { showReadingAdjustmentDialog = it },
                     onArchive = viewModel::archiveProject,
                     onPause = viewModel::setProjectPaused,
+                    onEditProject = { editProject = it },
+                    onDeleteProject = viewModel::deleteProject,
+                    onEditTask = { editTask = it },
+                    onDeleteTask = viewModel::deleteTask,
+                    onEditReadingPlan = { editReadingPlan = it },
+                    onDeleteReadingPlan = viewModel::deleteReadingPlan,
                 )
             }
-            composable(AppTab.TODO.name) { TodoScreen(state, padding, currentDay, viewModel::toggleTodo) }
-            composable(AppTab.FOCUS.name) { FocusScreen(state, padding, viewModel::startFocus, viewModel::stopFocus) }
+            composable(AppTab.TODO.name) { TodoScreen(state, padding, currentDay, viewModel::toggleTodo, { editTodo = it }, viewModel::deleteTodo) }
+            composable(AppTab.FOCUS.name) {
+                FocusScreen(
+                    state = state,
+                    padding = padding,
+                    projects = state.projects,
+                    tasks = state.tasks,
+                    onStart = { minutes, projectId, taskId -> viewModel.startFocus(minutes, projectId, taskId) },
+                    onStartPhase = viewModel::startCurrentFocusPhase,
+                    onStop = viewModel::stopFocus,
+                    onPause = viewModel::pauseFocus,
+                    onResume = viewModel::resumeFocus,
+                    onSkip = viewModel::skipFocus,
+                )
+            }
             composable(AppTab.STATS.name) {
-                StatsScreen(state, padding, currentDay, { showGoalDialog = true }, { showCountdownDialog = true }, viewModel::completeCountdown)
+                StatsScreen(state, padding, currentDay, { showGoalDialog = true }, { showCountdownDialog = true }, viewModel::completeCountdown, { editGoal = it }, viewModel::deleteGoal, { editCountdown = it }, viewModel::deleteCountdown)
             }
             composable(AppTab.SETTINGS.name) {
                 SettingsScreen(
@@ -390,13 +444,29 @@ fun LearnListApp(
                     onCheckForUpdate = onCheckForUpdate,
                     updateState = updateState,
                     onDownloadUpdate = onDownloadUpdate,
+                    onInstallUpdate = onInstallUpdate,
+                    onCancelUpdate = onCancelUpdate,
                     onDismissUpdate = onDismissUpdate,
                     onRequestNotifications = onRequestNotifications,
                     onRequestExactAlarms = onRequestExactAlarms,
                     soundEnabled = soundEnabled,
                     vibrationEnabled = vibrationEnabled,
+                    focusFeedbackMode = focusFeedbackMode,
+                    reminderFeedbackMode = reminderFeedbackMode,
+                    countdownFeedbackMode = countdownFeedbackMode,
+                    feedbackAudioName = feedbackAudioName,
+                    reviewBatchSize = reviewBatchSize,
+                    onReviewBatchSizeChange = onReviewBatchSizeChange,
+                    focusAutoStartBreaks = focusAutoStartBreaks,
+                    onFocusAutoStartBreaksChange = onFocusAutoStartBreaksChange,
                     onSoundEnabledChange = onSoundEnabledChange,
                     onVibrationEnabledChange = onVibrationEnabledChange,
+                    onFocusFeedbackModeChange = onFocusFeedbackModeChange,
+                    onReminderFeedbackModeChange = onReminderFeedbackModeChange,
+                    onCountdownFeedbackModeChange = onCountdownFeedbackModeChange,
+                    onChooseFeedbackAudio = onChooseFeedbackAudio,
+                    onPreviewFeedbackAudio = onPreviewFeedbackAudio,
+                    onClearFeedbackAudio = onClearFeedbackAudio,
                     onReplayOnboarding = { showOnboarding = true },
                     onNewReminder = viewModel::addReminder,
                     onSetReminderEnabled = viewModel::setReminderEnabled,
@@ -404,34 +474,58 @@ fun LearnListApp(
                     restDays = state.restDays,
                     onSetRestDays = viewModel::setRestDays,
                     onRestoreProject = viewModel::restoreProject,
+                    onRestoreDeletedProject = viewModel::restoreDeletedProject,
+                    onPermanentlyDeleteProject = viewModel::permanentlyDeleteProject,
+                    onRestoreDeletedTask = viewModel::restoreDeletedTask,
+                    onPermanentlyDeleteTask = viewModel::permanentlyDeleteTask,
+                    onRestoreDeletedReadingPlan = viewModel::restoreDeletedReadingPlan,
+                    onPermanentlyDeleteReadingPlan = viewModel::permanentlyDeleteReadingPlan,
+                    onRestoreDeletedTodo = viewModel::restoreDeletedTodo,
+                    onPermanentlyDeleteTodo = viewModel::permanentlyDeleteTodo,
+                    onRestoreDeletedGoal = viewModel::restoreDeletedGoal,
+                    onPermanentlyDeleteGoal = viewModel::permanentlyDeleteGoal,
+                    onRestoreDeletedCountdown = viewModel::restoreDeletedCountdown,
+                    onPermanentlyDeleteCountdown = viewModel::permanentlyDeleteCountdown,
                 )
             }
         }
     }
 
     if (showProjectDialog) {
-        ProjectDialog({ showProjectDialog = false }) { title, type, description, tags -> viewModel.addProject(title, type, description, tags); showProjectDialog = false }
+        ProjectDialog(onDismiss = { showProjectDialog = false }) { title, type, description, tags -> viewModel.addProject(title, type, description, tags); showProjectDialog = false }
     }
     if (showTaskDialog) {
-        TaskDialog(state.projects, taskProjectId, { showTaskDialog = false }) { projectId, title, prompt, notes, source, required -> viewModel.addTask(projectId, title, prompt, notes, source, required); showTaskDialog = false }
+        TaskDialog(projects = state.projects, initialProjectId = taskProjectId, onDismiss = { showTaskDialog = false }) { projectId, title, prompt, notes, source, required -> viewModel.addTask(projectId, title, prompt, notes, source, required); showTaskDialog = false }
     }
     if (showReadingDialog) {
-        ReadingDialog(state.projects, readingProjectId, { showReadingDialog = false }) { projectId, title, total, target, deadline -> viewModel.addReadingPlan(projectId, title, total, target, deadline); showReadingDialog = false }
+        ReadingDialog(projects = state.projects, initialProjectId = readingProjectId, onDismiss = { showReadingDialog = false }) { projectId, title, total, target, deadline -> viewModel.addReadingPlan(projectId, title, total, target, deadline); showReadingDialog = false }
     }
     if (showTodoDialog) {
-        TodoDialog({ showTodoDialog = false }) { title, notes, required, repeat, custom, dueDate -> viewModel.addTodo(title, notes, required, repeat, custom, dueDate); showTodoDialog = false }
+        TodoDialog(onDismiss = { showTodoDialog = false }, projects = state.projects) { title, notes, required, repeat, custom, dueDate, projectId -> viewModel.addTodo(title, notes, required, repeat, custom, dueDate, projectId); showTodoDialog = false }
     }
     showReviewDialog?.let { task ->
-        ReviewDialog(task, { showReviewDialog = null }) { rating -> viewModel.review(task.id, rating); showReviewDialog = null }
+        ReviewDialog(task, { showReviewDialog = null }) { rating -> viewModel.review(task.id, rating, currentDay); showReviewDialog = null }
+    }
+    showCorrectionDialog?.let { task ->
+        ReviewCorrectionDialog(task, { showCorrectionDialog = null }) { stage, nextDate, reason ->
+            viewModel.correctReview(task, stage, nextDate, reason)
+            showCorrectionDialog = null
+        }
     }
     showPagesDialog?.let { plan ->
-        PagesDialog(plan, state.pageLogs.filter { it.planId == plan.id && it.localDate == currentDay.toString() }.sumOf(PageLogEntity::pagesRead), { showPagesDialog = null }) { pages -> viewModel.logReading(plan.id, pages); showPagesDialog = null }
+        PagesDialog(plan, readingPagesOn(state.pageLogs, state.readingAdjustments, plan.id, currentDay), { showPagesDialog = null }) { pages -> viewModel.logReading(plan.id, pages, currentDay); showPagesDialog = null }
+    }
+    showReadingAdjustmentDialog?.let { plan ->
+        ReadingAdjustmentDialog(plan, { showReadingAdjustmentDialog = null }) { delta, reason ->
+            viewModel.adjustReading(plan, delta, reason, currentDay)
+            showReadingAdjustmentDialog = null
+        }
     }
     if (showGoalDialog) {
-        GoalDialog({ showGoalDialog = false }) { title, metric, target, period, endDate -> viewModel.addGoal(title, metric, target, period, endDate); showGoalDialog = false }
+        GoalDialog(onDismiss = { showGoalDialog = false }, projects = state.projects) { title, metric, target, period, endDate, projectId -> viewModel.addGoal(title, metric, target, period, endDate, projectId); showGoalDialog = false }
     }
     if (showCountdownDialog) {
-        CountdownDialog({ showCountdownDialog = false }) { title, date, time, note, reminder -> viewModel.addCountdown(title, date, time, note, reminder); showCountdownDialog = false }
+        CountdownDialog(onDismiss = { showCountdownDialog = false }) { title, date, time, note, reminder -> viewModel.addCountdown(title, date, time, note, reminder); showCountdownDialog = false }
     }
     if (showBackupDialog) {
         BackupDialog("导出备份", "生成备份", { showBackupDialog = false }) { encrypted, password -> onExportBackup(encrypted, password); showBackupDialog = false }
@@ -447,6 +541,36 @@ fun LearnListApp(
                 onCompleteOnboarding()
             },
         )
+    }
+    editProject?.let { project ->
+        ProjectDialog(initialProject = project, onDismiss = { editProject = null }) { title, type, description, tags -> viewModel.updateProject(project, title, type, description, tags); editProject = null }
+    }
+    editTask?.let { task ->
+        TaskDialog(projects = state.projects, initialProjectId = task.projectId, initialTask = task, onDismiss = { editTask = null }) { _, title, prompt, notes, source, required -> viewModel.updateTask(task, title, prompt, notes, source, required); editTask = null }
+    }
+    editReadingPlan?.let { plan ->
+        ReadingDialog(projects = state.projects, initialProjectId = plan.projectId, initialPlan = plan, onDismiss = { editReadingPlan = null }) { _, title, total, target, deadline ->
+            viewModel.updateReadingPlan(plan, title, total, target, deadline)
+            editReadingPlan = null
+        }
+    }
+    editTodo?.let { todo ->
+        TodoDialog(onDismiss = { editTodo = null }, projects = state.projects, initialTodo = todo) { title, notes, required, repeat, custom, dueDate, projectId ->
+            viewModel.updateTodo(todo, title, notes, required, repeat, custom, dueDate, projectId)
+            editTodo = null
+        }
+    }
+    editGoal?.let { goal ->
+        GoalDialog(onDismiss = { editGoal = null }, projects = state.projects, initialGoal = goal) { title, metric, target, period, endDate, projectId ->
+            viewModel.updateGoal(goal, title, metric, target, period, endDate, projectId)
+            editGoal = null
+        }
+    }
+    editCountdown?.let { countdown ->
+        CountdownDialog(onDismiss = { editCountdown = null }, initialCountdown = countdown) { title, date, time, note, reminder ->
+            viewModel.updateCountdown(countdown, title, date, time, note, reminder)
+            editCountdown = null
+        }
     }
 }
 
@@ -651,19 +775,44 @@ private fun TodayScreen(
     state: LearnListUiState,
     padding: PaddingValues,
     today: LocalDate,
+    onDateChange: (LocalDate) -> Unit,
     viewModel: LearnListViewModel,
     onReview: (LearningTaskEntity) -> Unit,
+    onCorrectReview: (LearningTaskEntity) -> Unit,
     onPages: (ReadingPlanEntity) -> Unit,
+    onAdjustReading: (ReadingPlanEntity) -> Unit,
     onRebalance: (String) -> Unit,
     onAdjustTarget: (String, Int) -> Unit,
+    reviewBatchSize: Int,
 ) {
     val activeProjectIds = state.projects.filterNot(ProjectEntity::isPaused).map(ProjectEntity::id).toSet()
-    val dueTasks = state.tasks.filter { it.projectId in activeProjectIds && it.isDueOn(today) }
+    val dueTasks = state.tasks
+        .filter { it.projectId in activeProjectIds && it.isDueOn(today) }
+        .sortedWith(
+            compareByDescending<LearningTaskEntity> { task ->
+                task.nextReviewDate?.let { runCatching { LocalDate.parse(it).isBefore(today) }.getOrDefault(false) } == true
+            }.thenBy { task -> task.nextReviewDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: today },
+        )
     val readingPlans = state.readingPlans.filter { plan ->
         val started = runCatching { LocalDate.parse(plan.startDate) <= today }.getOrDefault(true)
         !plan.isPaused && plan.projectId in activeProjectIds && started && (plan.currentPage < plan.totalPages || state.pageLogs.any { it.planId == plan.id && it.localDate == today.toString() })
     }
-    val dueTodos = state.todos.filter { it.isDueOn(today) }
+    val todayInstanceSourceIds = state.todos.filter { it.recurrenceSourceId != null && it.dueDate == today.toString() }.mapNotNull(TodoEntity::recurrenceSourceId).toSet()
+    val dueTodos = state.todos.filter { todo ->
+        todo.id !in todayInstanceSourceIds &&
+            (todo.projectId == null || todo.projectId in activeProjectIds) &&
+            todo.isDueOn(today)
+    }
+    var missedTodoPrompt by remember { mutableStateOf<TodoEntity?>(null) }
+    val promptedMissedTodoIds = remember { mutableSetOf<String>() }
+    LaunchedEffect(state.todos, today) {
+        if (missedTodoPrompt == null) {
+            state.todos.firstOrNull { it.id !in promptedMissedTodoIds && it.id !in todayInstanceSourceIds && it.previousMissedOccurrence(today) != null }?.let {
+                promptedMissedTodoIds += it.id
+                missedTodoPrompt = it
+            }
+        }
+    }
     val progress = DailyProgressCalculator().calculate(
         DailyProgressMapper.from(
             projects = state.projects + state.archivedProjects,
@@ -672,14 +821,15 @@ private fun TodayScreen(
             readingPlans = state.readingPlans,
             readingTargets = state.readingTargets,
             pageLogs = state.pageLogs,
+            readingAdjustments = state.readingAdjustments,
             todos = state.todos,
         ),
         today,
     )
     val streak = calculateStreak(state, today, state.restDays)
-    val readingPages = state.pageLogs.filter { it.localDate == today.toString() }.sumOf(PageLogEntity::pagesRead)
+    val readingPages = readingPagesOn(state.pageLogs, state.readingAdjustments, date = today)
     val todoDone = dueTodos.count { it.isCompletedOn(today) }
-    val focusMinutes = state.focusSessions.filter { it.startedAt.toLocalDate() == today }.sumOf(FocusSessionEntity::actualMinutes)
+    val focusMinutes = state.focusSessions.filter { it.activityDate() == today }.sumOf { it.actualSeconds / 60 }
     val percent = progress.percent
 
     LazyColumn(
@@ -689,10 +839,16 @@ private fun TodayScreen(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = { onDateChange(today.minusDays(1)) },
+                    enabled = today.isAfter(LocalDate.MIN.plusDays(1)),
+                    modifier = Modifier.size(34.dp),
+                ) { Icon(Icons.Default.ChevronLeft, "查看前一天") }
                 Column(Modifier.weight(1f)) {
                     Text(today.format(DateTimeFormatter.ofPattern("M月d日 · E", Locale.CHINA)), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                    Text(if (progress.totalRequired == 0) "准备好开始了吗？" else "今天，完成一个小动作。", style = MaterialTheme.typography.headlineSmall)
+                    Text(if (today == LocalDate.now()) "今天" else "历史回看", style = MaterialTheme.typography.headlineSmall)
                 }
+                IconButton(onClick = { if (today.isBefore(LocalDate.now())) onDateChange(today.plusDays(1)) }, enabled = today.isBefore(LocalDate.now()), modifier = Modifier.size(34.dp)) { Icon(Icons.Default.ChevronRight, "查看后一天") }
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.LocalFireDepartment, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(17.dp))
@@ -751,19 +907,20 @@ private fun TodayScreen(
                 }
             }
         }
-        item { SectionHeader("今天先做这些", "建议先完成 20 项；所有逾期复习都会列出") }
+        item { SectionHeader("今天先做这些", "建议先完成 $reviewBatchSize 项；所有逾期复习都会列出") }
         if (dueTasks.isEmpty()) item { EmptyCard("没有积压复习。去学习页添加一个新任务吧。", Icons.Default.AutoAwesome) }
         items(dueTasks, key = { it.id }) { task ->
-            ReviewTaskCard(task, { onReview(task) }, { viewModel.initialLearn(task.id) }, compact = true)
+            ReviewTaskCard(task, { onReview(task) }, { viewModel.initialLearn(task.id, today) }, compact = true, onCorrect = { onCorrectReview(task) })
         }
         item { SectionHeader("阅读进度", "今天达标就算完成一项") }
         if (readingPlans.isEmpty()) item { EmptyCard("还没有进行中的阅读计划。", Icons.AutoMirrored.Filled.MenuBook) }
         items(readingPlans, key = { it.id }) { plan ->
             ReadingPlanCard(
                 plan = plan,
-                pagesToday = state.pageLogs.filter { it.planId == plan.id && it.localDate == today.toString() }.sumOf(PageLogEntity::pagesRead),
+                pagesToday = readingPagesOn(state.pageLogs, state.readingAdjustments, plan.id, today),
                 targetPages = state.readingTargets.targetFor(plan.id, today, plan.dailyTarget),
                 onLog = { onPages(plan) },
+                onAdjust = { onAdjustReading(plan) },
                 onRebalance = { onRebalance(plan.id) },
                 onAdjustTarget = { onAdjustTarget(plan.id, it) },
             )
@@ -771,8 +928,27 @@ private fun TodayScreen(
         item { SectionHeader("今日待办", "重复规则会自动带到正确的日期") }
         if (dueTodos.isEmpty()) item { EmptyCard("今天没有到期待办，给自己留一点空间。", Icons.Default.CheckCircleOutline) }
         items(dueTodos, key = { it.id }) { todo ->
-            TodoCard(todo, today) { viewModel.toggleTodo(todo.id, today, todo.isCompletedOn(today)) }
+            TodoCard(todo, today, onToggle = { viewModel.toggleTodo(todo.id, today, todo.isCompletedOn(today)) })
         }
+    }
+    missedTodoPrompt?.let { todo ->
+        val missedDate = todo.previousMissedOccurrence(today)
+        AlertDialog(
+            onDismissRequest = { missedTodoPrompt = null },
+            shape = MaterialTheme.shapes.large,
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("有一项重复待办漏做了") },
+            text = { Text("“${todo.title}”在 ${missedDate ?: "之前"} 没有完成。要把它作为今天的一次性待办处理吗？") },
+            confirmButton = {
+                Button(onClick = { viewModel.createTodoInstanceForToday(todo.id); missedTodoPrompt = null }) { Text("今天处理") }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { viewModel.setTodoMissedPromptPolicy(todo.id, "NEVER"); missedTodoPrompt = null }) { Text("不再询问") }
+                    TextButton(onClick = { missedTodoPrompt = null }) { Text("稍后") }
+                }
+            },
+        )
     }
 }
 
@@ -786,10 +962,18 @@ private fun LearnScreen(
     onPages: (ReadingPlanEntity) -> Unit,
     onRebalance: (String) -> Unit,
     onAdjustTarget: (String, Int) -> Unit,
-    onInitialLearn: (String) -> Unit,
+    onInitialLearn: (String, LocalDate) -> Unit,
     onReview: (LearningTaskEntity) -> Unit,
+    onCorrectReview: (LearningTaskEntity) -> Unit,
+    onAdjustReading: (ReadingPlanEntity) -> Unit,
     onArchive: (String) -> Unit,
     onPause: (String, Boolean) -> Unit,
+    onEditProject: (ProjectEntity) -> Unit,
+    onDeleteProject: (String) -> Unit,
+    onEditTask: (LearningTaskEntity) -> Unit,
+    onDeleteTask: (String) -> Unit,
+    onEditReadingPlan: (ReadingPlanEntity) -> Unit,
+    onDeleteReadingPlan: (String) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val normalizedQuery = query.trim().lowercase()
@@ -839,6 +1023,7 @@ private fun LearnScreen(
                 tasks = state.tasks.filter { it.projectId == project.id },
                 plans = state.readingPlans.filter { it.projectId == project.id },
                 pageLogs = state.pageLogs,
+                readingAdjustments = state.readingAdjustments,
                 readingTargets = state.readingTargets,
                 today = today,
                 onNewTask = { onNewTask(project.id) },
@@ -848,8 +1033,16 @@ private fun LearnScreen(
                 onAdjustTarget = onAdjustTarget,
                 onInitialLearn = onInitialLearn,
                 onReview = onReview,
+                onCorrectReview = onCorrectReview,
+                onAdjustReading = onAdjustReading,
                 onArchive = { onArchive(project.id) },
                 onPause = { onPause(project.id, !project.isPaused) },
+                onEdit = { onEditProject(project) },
+                onDelete = { onDeleteProject(project.id) },
+                onEditTask = onEditTask,
+                onDeleteTask = onDeleteTask,
+                onEditReadingPlan = onEditReadingPlan,
+                onDeleteReadingPlan = onDeleteReadingPlan,
             )
         }
     }
@@ -861,6 +1054,7 @@ private fun ProjectCard(
     tasks: List<LearningTaskEntity>,
     plans: List<ReadingPlanEntity>,
     pageLogs: List<PageLogEntity>,
+    readingAdjustments: List<ReadingAdjustmentEntity>,
     readingTargets: List<ReadingTargetEntity>,
     today: LocalDate,
     onNewTask: () -> Unit,
@@ -868,10 +1062,18 @@ private fun ProjectCard(
     onPages: (ReadingPlanEntity) -> Unit,
     onRebalance: (String) -> Unit,
     onAdjustTarget: (String, Int) -> Unit,
-    onInitialLearn: (String) -> Unit,
+    onInitialLearn: (String, LocalDate) -> Unit,
     onReview: (LearningTaskEntity) -> Unit,
+    onCorrectReview: (LearningTaskEntity) -> Unit,
+    onAdjustReading: (ReadingPlanEntity) -> Unit,
     onArchive: () -> Unit,
     onPause: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onEditTask: (LearningTaskEntity) -> Unit,
+    onDeleteTask: (String) -> Unit,
+    onEditReadingPlan: (ReadingPlanEntity) -> Unit,
+    onDeleteReadingPlan: (String) -> Unit,
 ) {
     var expanded by rememberSaveable(project.id) { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -905,6 +1107,16 @@ private fun ProjectCard(
                             leadingIcon = { Icon(Icons.Default.Archive, null) },
                             onClick = { menuExpanded = false; onArchive() },
                         )
+                        DropdownMenuItem(
+                            text = { Text("编辑项目") },
+                            leadingIcon = { Icon(Icons.Default.Edit, null) },
+                            onClick = { menuExpanded = false; onEdit() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("移入回收站") },
+                            leadingIcon = { Icon(Icons.Default.Delete, null) },
+                            onClick = { menuExpanded = false; onDelete() },
+                        )
                     }
                 }
             }
@@ -920,16 +1132,19 @@ private fun ProjectCard(
                 plans.forEach { plan ->
                     ReadingPlanCard(
                         plan = plan,
-                        pagesToday = pageLogs.filter { it.planId == plan.id && it.localDate == today.toString() }.sumOf(PageLogEntity::pagesRead),
+                        pagesToday = readingPagesOn(pageLogs, readingAdjustments, plan.id, today),
                         targetPages = readingTargets.targetFor(plan.id, today, plan.dailyTarget),
                         onLog = { onPages(plan) },
+                        onAdjust = { onAdjustReading(plan) },
                         onRebalance = { onRebalance(plan.id) },
                         onAdjustTarget = { onAdjustTarget(plan.id, it) },
+                        onEdit = { onEditReadingPlan(plan) },
+                        onDelete = { onDeleteReadingPlan(plan.id) },
                     )
                 }
                 tasks.forEach { task ->
                     if (!project.isPaused && (task.isDueOn(today) || !task.hasLearned)) {
-                        ReviewTaskCard(task, { onReview(task) }, { onInitialLearn(task.id) })
+                        ReviewTaskCard(task, { onReview(task) }, { onInitialLearn(task.id, today) }, onEdit = { onEditTask(task) }, onDelete = { onDeleteTask(task.id) }, onCorrect = { onCorrectReview(task) })
                     } else if (!project.isPaused) {
                         Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
                             Row(Modifier.fillMaxWidth().padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -956,9 +1171,18 @@ private fun TodoScreen(
     padding: PaddingValues,
     today: LocalDate,
     onToggle: (String, LocalDate, Boolean) -> Unit,
+    onEdit: (TodoEntity) -> Unit,
+    onDelete: (String) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    val todos = state.todos.filter { it.isDueOn(today) && (query.isBlank() || it.title.contains(query.trim(), true) || it.notes.contains(query.trim(), true)) }
+    val activeProjectIds = state.projects.filterNot(ProjectEntity::isPaused).map(ProjectEntity::id).toSet()
+    val instanceSourceIds = state.todos.filter { it.recurrenceSourceId != null && it.dueDate == today.toString() }.mapNotNull(TodoEntity::recurrenceSourceId).toSet()
+    val todos = state.todos.filter { todo ->
+        todo.id !in instanceSourceIds &&
+            (todo.projectId == null || todo.projectId in activeProjectIds) &&
+            todo.isDueOn(today) &&
+            (query.isBlank() || todo.title.contains(query.trim(), true) || todo.notes.contains(query.trim(), true))
+    }
     val done = todos.count { it.isCompletedOn(today) }
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
@@ -990,7 +1214,7 @@ private fun TodoScreen(
         }
         item { Text("${todos.size} 项安排", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
         if (todos.isEmpty()) item { EmptyCard("没有到期待办，点击右下角添加。", Icons.Default.CheckCircleOutline) }
-        items(todos, key = { it.id }) { todo -> TodoCard(todo, today) { onToggle(todo.id, today, todo.isCompletedOn(today)) } }
+        items(todos, key = { it.id }) { todo -> TodoCard(todo, today, { onToggle(todo.id, today, todo.isCompletedOn(today)) }, { onEdit(todo) }, { onDelete(todo.id) }) }
         item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1007,11 +1231,35 @@ private fun TodoScreen(
 }
 
 @Composable
-private fun FocusScreen(state: LearnListUiState, padding: PaddingValues, onStart: (Int) -> Unit, onStop: () -> Unit) {
+private fun FocusScreen(
+    state: LearnListUiState,
+    padding: PaddingValues,
+    projects: List<ProjectEntity>,
+    tasks: List<LearningTaskEntity>,
+    onStart: (Int, String?, String?) -> Unit,
+    onStartPhase: () -> Unit,
+    onStop: () -> Unit,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onSkip: () -> Unit,
+) {
     val minutes = state.focusRemainingSeconds / 60
     val seconds = state.focusRemainingSeconds % 60
     var customMinutes by rememberSaveable { mutableStateOf("25") }
-    val progress = if (state.focusRunning && state.focusPlannedMinutes > 0) state.focusRemainingSeconds / (state.focusPlannedMinutes * 60f) else 0f
+    var selectedProjectId by rememberSaveable { mutableStateOf(state.focusProjectId.orEmpty()) }
+    var selectedTaskId by rememberSaveable { mutableStateOf(state.focusTaskId.orEmpty()) }
+    val selectableTasks = tasks.filter { task -> selectedProjectId.isBlank() || task.projectId == selectedProjectId }
+    val phaseActive = state.focusRunning || state.focusPaused
+    LaunchedEffect(state.focusProjectId, state.focusTaskId, phaseActive) {
+        if (!phaseActive) {
+            selectedProjectId = state.focusProjectId.orEmpty()
+            selectedTaskId = state.focusTaskId.orEmpty()
+        }
+    }
+    LaunchedEffect(selectedProjectId) {
+        if (selectedTaskId.isNotBlank() && selectableTasks.none { it.id == selectedTaskId }) selectedTaskId = ""
+    }
+    val progress = if (phaseActive && state.focusPlannedMinutes > 0) state.focusRemainingSeconds / (state.focusPlannedMinutes * 60f) else 0f
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -1027,31 +1275,58 @@ private fun FocusScreen(state: LearnListUiState, padding: PaddingValues, onStart
                 Column(Modifier.fillMaxWidth().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(if (state.focusRunning) "专注进行中" else "专注工作台", color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text(if (state.focusRunning) "让这一段时间只属于一件事" else "选择一段不被打扰的时间", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                            Text(if (state.focusRunning) phaseLabel(state.focusPhase) else if (state.focusPaused) "${phaseLabel(state.focusPhase)}已暂停" else if (state.focusPhase != "WORK") "${phaseLabel(state.focusPhase)}待开始" else "专注工作台", color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(if (state.focusRunning) "第 ${state.focusRound} 轮 · 让这一段时间只属于一件事" else if (state.focusPaused) "准备好后继续这一段专注" else if (state.focusPhase != "WORK") "可以继续上一轮的节奏，也可以开始新的专注" else "选择一段不被打扰的时间", color = Color.White, style = MaterialTheme.typography.titleLarge)
                         }
                         Icon(Icons.Default.Timer, null, tint = Color.White.copy(alpha = 0.86f), modifier = Modifier.size(32.dp))
                     }
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(208.dp)) {
-                        CircularProgressIndicator(progress = { if (state.focusRunning) progress else 0f }, modifier = Modifier.fillMaxSize(), color = Color.White, trackColor = Color.White.copy(alpha = 0.2f), strokeWidth = 12.dp)
+                        CircularProgressIndicator(progress = { if (phaseActive) progress else 0f }, modifier = Modifier.fillMaxSize(), color = Color.White, trackColor = Color.White.copy(alpha = 0.2f), strokeWidth = 12.dp)
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(if (state.focusRunning) "%02d:%02d".format(minutes, seconds) else "25:00", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 40.sp, fontWeight = FontWeight.Bold)
-                            Text(if (state.focusRunning) "剩余时间" else "番茄钟", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp)
+                            Text(if (phaseActive) "%02d:%02d".format(minutes, seconds) else if (state.focusPhase == "WORK") "25:00" else FocusTimerService.formatRemaining(state.focusRemainingSeconds), color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 40.sp, fontWeight = FontWeight.Bold)
+                            Text(if (phaseActive) "剩余时间" else "番茄钟", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp)
                         }
                     }
                     if (state.focusRunning) {
-                        Button(onClick = onStop, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = MaterialTheme.colorScheme.secondary)) {
-                            Icon(Icons.Default.Stop, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("结束并保存")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = onPause, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = MaterialTheme.colorScheme.secondary)) {
+                                Icon(Icons.Default.Pause, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("暂停")
+                            }
+                            OutlinedButton(onClick = onStop, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) {
+                                Icon(Icons.Default.Stop, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("结束并保存")
+                            }
                         }
+                        TextButton(onClick = onSkip, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) { Text("跳过这一阶段") }
+                    } else if (state.focusPaused) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = onResume, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = MaterialTheme.colorScheme.secondary)) {
+                                Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("继续")
+                            }
+                            OutlinedButton(onClick = onStop, colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) {
+                                Icon(Icons.Default.Stop, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("结束并保存")
+                            }
+                        }
+                        TextButton(onClick = onSkip, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) { Text("跳过这一阶段") }
                     } else {
+                        FocusBindingPicker("关联项目（可选）", listOf("" to "不关联") + projects.map { it.id to it.title }, selectedProjectId) { selectedProjectId = it }
+                        FocusBindingPicker("关联任务（可选）", listOf("" to "不关联") + selectableTasks.map { it.id to it.title }, selectedTaskId) { selectedTaskId = it }
+                        Button(
+                            onClick = onStartPhase,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = MaterialTheme.colorScheme.secondary),
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("开始当前${phaseLabel(state.focusPhase)}")
+                        }
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                             listOf(25, 50, 90).forEach { preset ->
-                                FilterChip(selected = false, onClick = { onStart(preset) }, label = { Text("${preset} 分") }, border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f)), colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(labelColor = Color.White, iconColor = Color.White))
+                                FilterChip(selected = false, onClick = { onStart(preset, selectedProjectId.takeIf(String::isNotBlank), selectedTaskId.takeIf(String::isNotBlank)) }, label = { Text("${preset} 分") }, border = BorderStroke(1.dp, Color.White.copy(alpha = 0.55f)), colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(labelColor = Color.White, iconColor = Color.White))
                             }
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(customMinutes, { customMinutes = it.filter(Char::isDigit).take(3) }, Modifier.weight(1f), label = { Text("自定义分钟") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                            Button(onClick = { customMinutes.toIntOrNull()?.let(onStart) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = MaterialTheme.colorScheme.secondary)) { Text("开始") }
+                            Button(onClick = { customMinutes.toIntOrNull()?.let { onStart(it, selectedProjectId.takeIf(String::isNotBlank), selectedTaskId.takeIf(String::isNotBlank)) } }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = MaterialTheme.colorScheme.secondary)) { Text("开始") }
                         }
                         Text("可设置 1–180 分钟 · 离开应用后会自动恢复", color = Color.White.copy(alpha = 0.74f), fontSize = 12.sp)
                     }
@@ -1081,6 +1356,10 @@ private fun StatsScreen(
     onNewGoal: () -> Unit,
     onNewCountdown: () -> Unit,
     onCompleteCountdown: (String) -> Unit,
+    onEditGoal: (GoalEntity) -> Unit,
+    onDeleteGoal: (String) -> Unit,
+    onEditCountdown: (CountdownEntity) -> Unit,
+    onDeleteCountdown: (String) -> Unit,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
@@ -1098,24 +1377,24 @@ private fun StatsScreen(
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricCard("复习总数", state.reviewLogs.size.toString(), Modifier.weight(1f), MaterialTheme.colorScheme.primary)
-                MetricCard("阅读总页", state.pageLogs.sumOf(PageLogEntity::pagesRead).toString(), Modifier.weight(1f), MaterialTheme.colorScheme.secondary)
+                MetricCard("阅读总页", (state.pageLogs.sumOf(PageLogEntity::pagesRead) + state.readingAdjustments.sumOf(ReadingAdjustmentEntity::deltaPages)).coerceAtLeast(0).toString(), Modifier.weight(1f), MaterialTheme.colorScheme.secondary)
                 MetricCard("专注分钟", state.focusSessions.sumOf(FocusSessionEntity::actualMinutes).toString(), Modifier.weight(1f), MaterialTheme.colorScheme.tertiary)
             }
         }
         item {
-            SectionHeader("最近 28 天", "复习 + 阅读页数的密度")
-            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { HeatMap(state, today) } }
+            SectionHeader("最近 28 天", "按单位分别查看复习、阅读、专注和待办")
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricHeatMap(state, today) } }
         }
         item {
-            SectionHeader("最近 7 天", "复习、阅读和专注的综合趋势")
-            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { TrendChart(state, today) } }
+            SectionHeader("最近 7 天", "每条趋势保持自己的计量单位")
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricTrendChart(state, today) } }
         }
         item { SectionHeader("量化目标", "给想坚持的事一个可见的终点", trailing = { TextButton(onClick = onNewGoal) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Text("新增") } }) }
         if (state.goals.isEmpty()) item { EmptyCard("例如：每天专注 50 分钟、每周复习 20 项。", Icons.Default.Flag) }
-        items(state.goals, key = { it.id }) { goal -> GoalCard(goal, state, today) }
+        items(state.goals, key = { it.id }) { goal -> GoalCard(goal, state, today, { onEditGoal(goal) }, { onDeleteGoal(goal.id) }) }
         item { SectionHeader("倒计时", "考试、截止日或下一次重要事件", trailing = { TextButton(onClick = onNewCountdown) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Text("新增") } }) }
         if (state.countdowns.isEmpty()) item { EmptyCard("为重要事件留一个提前量。", Icons.Default.CalendarToday) }
-        items(state.countdowns, key = { it.id }) { countdown -> CountdownCard(countdown) { onCompleteCountdown(countdown.id) } }
+        items(state.countdowns, key = { it.id }) { countdown -> CountdownCard(countdown, { onCompleteCountdown(countdown.id) }, { onEditCountdown(countdown) }, { onDeleteCountdown(countdown.id) }) }
     }
 }
 
@@ -1129,13 +1408,29 @@ private fun SettingsScreen(
     onCheckForUpdate: () -> Unit,
     updateState: UpdateUiState,
     onDownloadUpdate: () -> Unit,
+    onInstallUpdate: () -> Unit,
+    onCancelUpdate: () -> Unit,
     onDismissUpdate: () -> Unit,
     onRequestNotifications: () -> Unit,
     onRequestExactAlarms: () -> Unit,
     soundEnabled: Boolean,
     vibrationEnabled: Boolean,
+    focusFeedbackMode: String,
+    reminderFeedbackMode: String,
+    countdownFeedbackMode: String,
+    feedbackAudioName: String?,
+    reviewBatchSize: Int,
+    onReviewBatchSizeChange: (Int) -> Unit,
+    focusAutoStartBreaks: Boolean,
+    onFocusAutoStartBreaksChange: (Boolean) -> Unit,
     onSoundEnabledChange: (Boolean) -> Unit,
     onVibrationEnabledChange: (Boolean) -> Unit,
+    onFocusFeedbackModeChange: (String) -> Unit,
+    onReminderFeedbackModeChange: (String) -> Unit,
+    onCountdownFeedbackModeChange: (String) -> Unit,
+    onChooseFeedbackAudio: () -> Unit,
+    onPreviewFeedbackAudio: () -> Unit,
+    onClearFeedbackAudio: () -> Unit,
     onReplayOnboarding: () -> Unit,
     onNewReminder: (String?, String, String, String, String, String) -> Unit,
     onSetReminderEnabled: (String, Boolean) -> Unit,
@@ -1143,9 +1438,29 @@ private fun SettingsScreen(
     restDays: Set<DayOfWeek>,
     onSetRestDays: (Set<DayOfWeek>) -> Unit,
     onRestoreProject: (String) -> Unit,
+    onRestoreDeletedProject: (String) -> Unit,
+    onPermanentlyDeleteProject: (String) -> Unit,
+    onRestoreDeletedTask: (String) -> Unit,
+    onPermanentlyDeleteTask: (String) -> Unit,
+    onRestoreDeletedReadingPlan: (String) -> Unit,
+    onPermanentlyDeleteReadingPlan: (String) -> Unit,
+    onRestoreDeletedTodo: (String) -> Unit,
+    onPermanentlyDeleteTodo: (String) -> Unit,
+    onRestoreDeletedGoal: (String) -> Unit,
+    onPermanentlyDeleteGoal: (String) -> Unit,
+    onRestoreDeletedCountdown: (String) -> Unit,
+    onPermanentlyDeleteCountdown: (String) -> Unit,
 ) {
     var showReminderDialog by rememberSaveable { mutableStateOf(false) }
     var reminderToDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var permanentDeleteTitle by remember { mutableStateOf<String?>(null) }
+    var permanentDeleteAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    fun requestPermanentDelete(title: String, action: () -> Unit) {
+        permanentDeleteTitle = title
+        permanentDeleteAction = action
+    }
+
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1185,7 +1500,21 @@ private fun SettingsScreen(
         }
         item { SectionHeader("更新中心", "每 24 小时自动检查一次，也可以现在手动检查") }
         item {
-            UpdateCenterCard(updateState, onCheckForUpdate, onDownloadUpdate, onDismissUpdate)
+            UpdateCenterCard(updateState, onCheckForUpdate, onDownloadUpdate, onInstallUpdate, onCancelUpdate, onDismissUpdate)
+        }
+        item { SectionHeader("复习节奏", "建议批次只影响提示，不会隐藏逾期内容") }
+        item {
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("每日建议先完成多少项", fontWeight = FontWeight.Bold)
+                    Text("当前建议 $reviewBatchSize 项。复习队列仍会完整展示，适合按精力调整。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(10, 20, 30, 50).forEach { value ->
+                            FilterChip(selected = reviewBatchSize == value, onClick = { onReviewBatchSizeChange(value) }, label = { Text("$value 项") })
+                        }
+                    }
+                }
+            }
         }
         item { SectionHeader("固定提醒", "在你习惯的时间，把今天拉回眼前") }
         item {
@@ -1251,7 +1580,45 @@ private fun SettingsScreen(
                         checked = vibrationEnabled,
                         onCheckedChange = onVibrationEnabledChange,
                     )
-                    Text("手机的静音、勿扰模式或系统通知设置仍可能抑制反馈。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceVariant) {
+                        Column(Modifier.fillMaxWidth().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("提示音", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text(feedbackAudioName ?: "当前使用系统通知音效", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                TextButton(onClick = onPreviewFeedbackAudio) { Text("试听") }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = onChooseFeedbackAudio, modifier = Modifier.weight(1f)) { Text("导入本地音效") }
+                                if (feedbackAudioName != null) {
+                                    TextButton(onClick = onClearFeedbackAudio, modifier = Modifier.weight(1f)) { Text("恢复系统音效") }
+                                }
+                            }
+                            Text("音频会复制到应用私有目录；文件缺失或无法播放时自动回退到系统音效。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                        }
+                    }
+                    Text("以上是全局默认；下面可以按场景覆盖。手机的静音、勿扰模式或系统通知设置仍可能抑制反馈。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    FeedbackModeChoiceRow("番茄阶段结束", focusFeedbackMode, onFocusFeedbackModeChange)
+                    FeedbackModeChoiceRow("固定提醒", reminderFeedbackMode, onReminderFeedbackModeChange)
+                    FeedbackModeChoiceRow("倒计时提醒", countdownFeedbackMode, onCountdownFeedbackModeChange)
+                }
+            }
+        }
+        item { SectionHeader("番茄循环", "默认 25 分钟专注 · 5 分钟短休 · 4 轮后 15 分钟长休") }
+        item {
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FeedbackToggleRow(
+                        icon = Icons.Default.Timer,
+                        title = "阶段结束后自动开始下一段",
+                        subtitle = if (focusAutoStartBreaks) "专注、短休和长休会自动衔接" else "每一段结束后停下来，由你决定是否继续",
+                        checked = focusAutoStartBreaks,
+                        onCheckedChange = onFocusAutoStartBreaksChange,
+                    )
+                    Text("暂停、跳过和提前结束都不会自动算作完整专注；只有工作阶段会进入专注统计。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 }
             }
         }
@@ -1294,6 +1661,38 @@ private fun SettingsScreen(
                 }
             }
         }
+        if (state.deletedProjects.isNotEmpty() || state.deletedTasks.isNotEmpty() || state.deletedReadingPlans.isNotEmpty() || state.deletedTodos.isNotEmpty() || state.deletedGoals.isNotEmpty() || state.deletedCountdowns.isNotEmpty()) {
+            item { SectionHeader("回收站", "移入后可恢复；永久删除不可撤销") }
+            item {
+                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        state.deletedProjects.forEach { item -> DeletedRow("项目 · ${item.title}", { onRestoreDeletedProject(item.id) }, { requestPermanentDelete("项目 · ${item.title}") { onPermanentlyDeleteProject(item.id) } }) }
+                        state.deletedTasks.forEach { item -> DeletedRow("任务 · ${item.title}", { onRestoreDeletedTask(item.id) }, { requestPermanentDelete("任务 · ${item.title}") { onPermanentlyDeleteTask(item.id) } }) }
+                        state.deletedReadingPlans.forEach { item -> DeletedRow("阅读 · ${item.title}", { onRestoreDeletedReadingPlan(item.id) }, { requestPermanentDelete("阅读 · ${item.title}") { onPermanentlyDeleteReadingPlan(item.id) } }) }
+                        state.deletedTodos.forEach { item -> DeletedRow("待办 · ${item.title}", { onRestoreDeletedTodo(item.id) }, { requestPermanentDelete("待办 · ${item.title}") { onPermanentlyDeleteTodo(item.id) } }) }
+                        state.deletedGoals.forEach { item -> DeletedRow("目标 · ${item.title}", { onRestoreDeletedGoal(item.id) }, { requestPermanentDelete("目标 · ${item.title}") { onPermanentlyDeleteGoal(item.id) } }) }
+                        state.deletedCountdowns.forEach { item -> DeletedRow("倒计时 · ${item.title}", { onRestoreDeletedCountdown(item.id) }, { requestPermanentDelete("倒计时 · ${item.title}") { onPermanentlyDeleteCountdown(item.id) } }) }
+                    }
+                }
+            }
+        }
+    }
+    permanentDeleteAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { permanentDeleteAction = null; permanentDeleteTitle = null },
+            shape = MaterialTheme.shapes.large,
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("永久删除？") },
+            text = { Text("${permanentDeleteTitle.orEmpty()} 将连同相关历史记录一起删除，且无法恢复。") },
+            confirmButton = {
+                Button(onClick = {
+                    action()
+                    permanentDeleteAction = null
+                    permanentDeleteTitle = null
+                }) { Text("永久删除") }
+            },
+            dismissButton = { TextButton(onClick = { permanentDeleteAction = null; permanentDeleteTitle = null }) { Text("取消") } },
+        )
     }
     if (showReminderDialog) {
         ReminderDialog(projects, { showReminderDialog = false }) { projectId, kind, time, quietStart, quietEnd, repeatDays -> onNewReminder(projectId, kind, time, quietStart, quietEnd, repeatDays); showReminderDialog = false }
@@ -1311,6 +1710,15 @@ private fun SettingsScreen(
             },
             dismissButton = { TextButton(onClick = { reminderToDeleteId = null }) { Text("取消") } },
         )
+    }
+}
+
+@Composable
+private fun DeletedRow(title: String, onRestore: () -> Unit, onDeleteForever: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
+        TextButton(onClick = onRestore) { Text("恢复") }
+        IconButton(onClick = onDeleteForever, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Delete, "永久删除", tint = MaterialTheme.colorScheme.error) }
     }
 }
 
@@ -1339,14 +1747,17 @@ private fun FeedbackToggleRow(
 }
 
 @Composable
-internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, onDownload: () -> Unit, onDismiss: () -> Unit) {
+internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, onDownload: () -> Unit, onInstall: () -> Unit, onCancel: () -> Unit, onDismiss: () -> Unit) {
     val available = updateState.available
+    val canRetryInstall = available != null && updateState.phase == UpdatePhase.INSTALLING && !updateState.isDownloading
     val phaseLabel = when (updateState.phase) {
         UpdatePhase.CHECKING -> "正在连接 GitHub Release…"
         UpdatePhase.CONNECTING -> "正在连接更新服务器…"
+        UpdatePhase.RESUMING -> "正在从上次进度继续下载…"
         UpdatePhase.DOWNLOADING -> "正在下载更新包…"
         UpdatePhase.VERIFYING -> "正在校验 SHA-256…"
-        UpdatePhase.INSTALLING -> "正在准备系统安装器…"
+        UpdatePhase.CERTIFICATE -> "正在校验版本与签名证书…"
+        UpdatePhase.INSTALLING -> "安装包已就绪，等待系统安装器确认…"
         UpdatePhase.IDLE -> updateState.statusMessage ?: "稳定版更新来自 GitHub，数据不会上传"
     }
     Surface(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = if (available != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, if (available != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant)) {
@@ -1360,6 +1771,7 @@ internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, o
                         when {
                             updateState.errorMessage != null -> updateState.errorMessage
                             updateState.isDownloading || updateState.isChecking -> phaseLabel
+                            available != null && updateState.phase == UpdatePhase.INSTALLING -> "安装包已校验，点击即可重新打开系统安装器"
                             available != null -> "校验通过后交给系统安装器，需要你确认"
                             updateState.statusMessage != null -> updateState.statusMessage
                             else -> "稳定版更新来自 GitHub，数据不会上传"
@@ -1379,10 +1791,17 @@ internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, o
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("上次检查：${formatLastChecked(updateState.lastCheckedAtEpochMillis)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 if (available != null) {
-                    Button(onClick = onDownload, enabled = !updateState.isDownloading) { Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("下载并安装") }
+                    Button(onClick = if (canRetryInstall) onInstall else onDownload, enabled = !updateState.isDownloading) {
+                        Icon(if (canRetryInstall) Icons.AutoMirrored.Filled.OpenInNew else Icons.Default.CloudDownload, null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (canRetryInstall) "重新打开安装器" else "下载并安装")
+                    }
                 } else {
                     OutlinedButton(onClick = onCheck, enabled = !updateState.isChecking && !updateState.isDownloading) { Icon(Icons.Default.Refresh, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text(if (updateState.isChecking) "检查中" else "检查更新") }
                 }
+            }
+            if (updateState.isDownloading) {
+                TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.End)) { Text("暂停下载") }
             }
             Text("下载后会验证 SHA-256；不会静默安装，也不会覆盖你的本地数据。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
         }
@@ -1418,7 +1837,15 @@ internal fun UpdateProgressFeedback(updateState: UpdateUiState) {
 }
 
 @Composable
-private fun ReviewTaskCard(task: LearningTaskEntity, onReview: () -> Unit, onInitial: () -> Unit, compact: Boolean = false) {
+private fun ReviewTaskCard(
+    task: LearningTaskEntity,
+    onReview: () -> Unit,
+    onInitial: () -> Unit,
+    compact: Boolean = false,
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+    onCorrect: (() -> Unit)? = null,
+) {
     Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(if (compact) 13.dp else 15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1429,6 +1856,17 @@ private fun ReviewTaskCard(task: LearningTaskEntity, onReview: () -> Unit, onIni
                     Text(if (task.hasLearned) "第 ${task.stage + 1} 个记忆间隔" else "首次学习", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 }
                 TagPill(if (task.hasLearned) "到期" else "新任务", MaterialTheme.colorScheme.primary)
+                if (onEdit != null || onDelete != null || onCorrect != null) {
+                    var menuExpanded by remember(task.id) { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.MoreVert, "任务操作") }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            onEdit?.let { callback -> DropdownMenuItem(text = { Text("编辑") }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { menuExpanded = false; callback() }) }
+                            onCorrect?.let { callback -> DropdownMenuItem(text = { Text("纠正复习") }, leadingIcon = { Icon(Icons.Default.Refresh, null) }, onClick = { menuExpanded = false; callback() }) }
+                            onDelete?.let { callback -> DropdownMenuItem(text = { Text("移入回收站") }, leadingIcon = { Icon(Icons.Default.Delete, null) }, onClick = { menuExpanded = false; callback() }) }
+                        }
+                    }
+                }
             }
             if (task.prompt.isNotBlank()) Text("提示：${task.prompt}", color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1444,7 +1882,17 @@ private fun ReviewTaskCard(task: LearningTaskEntity, onReview: () -> Unit, onIni
 }
 
 @Composable
-private fun ReadingPlanCard(plan: ReadingPlanEntity, pagesToday: Int, targetPages: Int, onLog: () -> Unit, onRebalance: () -> Unit, onAdjustTarget: (Int) -> Unit) {
+private fun ReadingPlanCard(
+    plan: ReadingPlanEntity,
+    pagesToday: Int,
+    targetPages: Int,
+    onLog: () -> Unit,
+    onAdjust: (() -> Unit)? = null,
+    onRebalance: () -> Unit,
+    onAdjustTarget: (Int) -> Unit,
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+) {
     val percent = (plan.currentPage * 100 / plan.totalPages.coerceAtLeast(1)).coerceIn(0, 100)
     val planFinished = plan.currentPage >= plan.totalPages
     val targetDone = planFinished || pagesToday >= targetPages
@@ -1455,6 +1903,17 @@ private fun ReadingPlanCard(plan: ReadingPlanEntity, pagesToday: Int, targetPage
                 Spacer(Modifier.width(9.dp))
                 Column(Modifier.weight(1f)) { Text(plan.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text("第 ${plan.currentPage} / ${plan.totalPages} 页", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp) }
                 Text("$percent%", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
+                if (onEdit != null || onDelete != null || onAdjust != null) {
+                    var menuExpanded by remember(plan.id) { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.MoreVert, "阅读计划操作") }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            onEdit?.let { callback -> DropdownMenuItem(text = { Text("编辑计划") }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { menuExpanded = false; callback() }) }
+                            onAdjust?.let { callback -> DropdownMenuItem(text = { Text("纠正页数") }, leadingIcon = { Icon(Icons.Default.Refresh, null) }, onClick = { menuExpanded = false; callback() }) }
+                            onDelete?.let { callback -> DropdownMenuItem(text = { Text("移入回收站") }, leadingIcon = { Icon(Icons.Default.Delete, null) }, onClick = { menuExpanded = false; callback() }) }
+                        }
+                    }
+                }
             }
             LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondary, trackColor = MaterialTheme.colorScheme.secondaryContainer)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1478,7 +1937,7 @@ private fun ReadingPlanCard(plan: ReadingPlanEntity, pagesToday: Int, targetPage
 }
 
 @Composable
-private fun TodoCard(todo: TodoEntity, today: LocalDate, onToggle: () -> Unit) {
+private fun TodoCard(todo: TodoEntity, today: LocalDate, onToggle: () -> Unit, onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
     val completed = todo.isCompletedOn(today)
     Surface(shape = MaterialTheme.shapes.medium, color = if (completed) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1491,12 +1950,22 @@ private fun TodoCard(todo: TodoEntity, today: LocalDate, onToggle: () -> Unit) {
                 Text("${repeatLabel(todo.repeatRule)}${if (todo.isRequired) " · 必做" else " · 可选"}${todo.dueDate?.let { " · $it" } ?: ""}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
             }
             if (completed) Text("已完成", color = MaterialTheme.colorScheme.secondary, fontSize = 11.sp)
+            if (onEdit != null || onDelete != null) {
+                var menuExpanded by remember(todo.id) { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.MoreVert, "待办操作") }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        onEdit?.let { callback -> DropdownMenuItem(text = { Text("编辑") }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { menuExpanded = false; callback() }) }
+                        onDelete?.let { callback -> DropdownMenuItem(text = { Text("移入回收站") }, leadingIcon = { Icon(Icons.Default.Delete, null) }, onClick = { menuExpanded = false; callback() }) }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun GoalCard(goal: GoalEntity, state: LearnListUiState, today: LocalDate) {
+private fun GoalCard(goal: GoalEntity, state: LearnListUiState, today: LocalDate, onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
     val current = goalCurrent(goal, state, today)
     val percent = GoalProgressCalculator().calculate(current, goal.targetValue.coerceAtLeast(1)).percent
     Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
@@ -1506,6 +1975,16 @@ private fun GoalCard(goal: GoalEntity, state: LearnListUiState, today: LocalDate
                 Spacer(Modifier.width(9.dp))
                 Text(goal.title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("$percent%", color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
+                if (onEdit != null || onDelete != null) {
+                    var menuExpanded by remember(goal.id) { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.MoreVert, "目标操作") }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            onEdit?.let { callback -> DropdownMenuItem(text = { Text("编辑目标") }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { menuExpanded = false; callback() }) }
+                            onDelete?.let { callback -> DropdownMenuItem(text = { Text("移入回收站") }, leadingIcon = { Icon(Icons.Default.Delete, null) }, onClick = { menuExpanded = false; callback() }) }
+                        }
+                    }
+                }
             }
             LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.tertiary, trackColor = MaterialTheme.colorScheme.tertiaryContainer)
             Text("${metricLabel(goal.metric)}：$current / ${goal.targetValue} · ${periodLabel(goal.period)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
@@ -1514,7 +1993,7 @@ private fun GoalCard(goal: GoalEntity, state: LearnListUiState, today: LocalDate
 }
 
 @Composable
-private fun CountdownCard(countdown: CountdownEntity, onComplete: () -> Unit) {
+private fun CountdownCard(countdown: CountdownEntity, onComplete: () -> Unit, onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
     var now by remember(countdown.id, countdown.isCompleted, countdown.eventAtEpochMillis) { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(countdown.id, countdown.isCompleted, countdown.eventAtEpochMillis) {
         while (!countdown.isCompleted) {
@@ -1532,41 +2011,78 @@ private fun CountdownCard(countdown: CountdownEntity, onComplete: () -> Unit) {
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) { Text(countdown.title, fontWeight = FontWeight.SemiBold); Text(text, color = if (duration.isNegative && !countdown.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant); if (countdown.note.isNotBlank()) Text(countdown.note, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (!countdown.isCompleted) IconButton(onClick = onComplete) { Icon(Icons.Default.Check, "完成", tint = MaterialTheme.colorScheme.secondary) }
-        }
-    }
-}
-
-@Composable
-private fun HeatMap(state: LearnListUiState, today: LocalDate) {
-    val values = (0 until 28).map { offset ->
-        val date = today.minusDays((27 - offset).toLong()).toString()
-        state.reviewLogs.count { it.reviewedOn == date } + state.pageLogs.filter { it.localDate == date }.sumOf(PageLogEntity::pagesRead) / 10
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        repeat(4) { week ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                repeat(7) { day -> Box(Modifier.weight(1f).height(28.dp).clip(RoundedCornerShape(7.dp)).background(heatColor(values[week * 7 + day]))) }
+            if (onEdit != null || onDelete != null) {
+                var menuExpanded by remember(countdown.id) { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(34.dp)) { Icon(Icons.Default.MoreVert, "倒计时操作") }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        onEdit?.let { callback -> DropdownMenuItem(text = { Text("编辑倒计时") }, leadingIcon = { Icon(Icons.Default.Edit, null) }, onClick = { menuExpanded = false; callback() }) }
+                        onDelete?.let { callback -> DropdownMenuItem(text = { Text("移入回收站") }, leadingIcon = { Icon(Icons.Default.Delete, null) }, onClick = { menuExpanded = false; callback() }) }
+                    }
+                }
             }
         }
-        Text("颜色越深，代表当天完成的复习或阅读越多。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private data class ActivityMetricSeries(val label: String, val unit: String, val color: Color, val values: List<Int>)
+
+@Composable
+private fun activityMetricSeries(state: LearnListUiState, today: LocalDate, days: Int): List<ActivityMetricSeries> {
+    val dates = (days - 1 downTo 0).map { today.minusDays(it.toLong()) }
+    val todoValues = state.todos.map { todo ->
+        todo.completedDates.split(',').mapNotNull { token -> runCatching { LocalDate.parse(token) }.getOrNull() }.toSet()
+    }
+    return listOf(
+        ActivityMetricSeries("复习项", "项", MaterialTheme.colorScheme.primary, dates.map { date -> state.reviewLogs.count { it.reviewedOn == date.toString() } }),
+        ActivityMetricSeries("阅读页", "页", MaterialTheme.colorScheme.secondary, dates.map { date ->
+            (state.pageLogs.filter { it.localDate == date.toString() }.sumOf(PageLogEntity::pagesRead) + state.readingAdjustments.filter { it.localDate == date.toString() }.sumOf(ReadingAdjustmentEntity::deltaPages)).coerceAtLeast(0)
+        }),
+        ActivityMetricSeries("专注", "分", MaterialTheme.colorScheme.tertiary, dates.map { date -> state.focusSessions.filter { it.activityDate() == date }.sumOf { it.actualSeconds / 60 } }),
+        ActivityMetricSeries("待办", "项", MaterialTheme.colorScheme.error, dates.map { date -> todoValues.sumOf { completed -> if (date in completed) 1 else 0 } }),
+    )
+}
+
+@Composable
+private fun MetricHeatMap(state: LearnListUiState, today: LocalDate) {
+    val series = activityMetricSeries(state, today, 28)
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        series.forEach { metric ->
+            val max = metric.values.maxOrNull()?.coerceAtLeast(1) ?: 1
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(metric.label, Modifier.width(42.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    metric.values.forEach { value ->
+                        Box(
+                            Modifier.weight(1f).height(22.dp).clip(RoundedCornerShape(5.dp)).background(metric.color.copy(alpha = 0.10f + 0.78f * value / max.toFloat())),
+                        )
+                    }
+                }
+            }
+        }
+        Text("颜色深浅只在同一行内比较；专注按分钟、阅读按页数统计。", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun TrendChart(state: LearnListUiState, today: LocalDate) {
-    val values = (0..6).map { offset ->
-        val date = today.minusDays((6 - offset).toLong())
-        val token = date.toString()
-        state.reviewLogs.count { it.reviewedOn == token } + state.pageLogs.filter { it.localDate == token }.sumOf(PageLogEntity::pagesRead) / 10 + state.focusSessions.filter { it.startedAt.toLocalDate() == date }.sumOf(FocusSessionEntity::actualMinutes) / 25
-    }
-    val maxValue = values.maxOrNull()?.coerceAtLeast(1) ?: 1
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        values.forEachIndexed { index, value ->
-            val date = today.minusDays((6 - index).toLong())
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.CHINA), Modifier.width(25.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LinearProgressIndicator(progress = { value / maxValue.toFloat() }, Modifier.weight(1f), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.primaryContainer)
-                Text(value.toString(), Modifier.width(22.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun MetricTrendChart(state: LearnListUiState, today: LocalDate) {
+    val series = activityMetricSeries(state, today, 7)
+    Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
+        series.forEach { metric ->
+            val max = metric.values.maxOrNull()?.coerceAtLeast(1) ?: 1
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(metric.label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text("${metric.values.sum()} ${metric.unit}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                }
+                metric.values.forEachIndexed { index, value ->
+                    val date = today.minusDays((6 - index).toLong())
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text(date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.CHINA), Modifier.width(25.dp), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        LinearProgressIndicator(progress = { value / max.toFloat() }, Modifier.weight(1f), color = metric.color, trackColor = metric.color.copy(alpha = 0.12f))
+                        Text("$value", Modifier.width(28.dp), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
+                    }
+                }
             }
         }
     }
@@ -1610,6 +2126,16 @@ private fun EmptyCard(text: String, icon: androidx.compose.ui.graphics.vector.Im
     }
 }
 
+private fun readingPagesOn(
+    pageLogs: List<PageLogEntity>,
+    adjustments: List<ReadingAdjustmentEntity>,
+    planId: String? = null,
+    date: LocalDate,
+): Int = (
+    pageLogs.filter { (planId == null || it.planId == planId) && it.localDate == date.toString() }.sumOf(PageLogEntity::pagesRead) +
+        adjustments.filter { (planId == null || it.planId == planId) && it.localDate == date.toString() }.sumOf(ReadingAdjustmentEntity::deltaPages)
+    ).coerceAtLeast(0)
+
 private fun List<ReadingTargetEntity>.targetFor(planId: String, date: LocalDate, fallback: Int): Int = firstOrNull { it.planId == planId && it.localDate == date.toString() }?.targetPages?.coerceAtLeast(1) ?: fallback.coerceAtLeast(1)
 
 private fun LearningTaskEntity.isDueOn(date: LocalDate): Boolean {
@@ -1626,12 +2152,32 @@ private fun TodoEntity.isDueOn(date: LocalDate): Boolean {
     return TodoRecurrence.isDue(rule, base, date, customDays = custom, completedDates = completed)
 }
 
+private fun TodoEntity.previousMissedOccurrence(today: LocalDate): LocalDate? {
+    if (repeatRule == TodoRepeatRule.ONCE.name || missedPromptPolicy == "NEVER") return null
+    val base = dueDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
+    for (offset in 1..366) {
+        val date = today.minusDays(offset.toLong())
+        if (date.isBefore(base)) break
+        if (isDueOn(date) && !isCompletedOn(date)) return date
+    }
+    return null
+}
+
 private fun TodoEntity.isCompletedOn(date: LocalDate): Boolean = TodoCompletion.isCompleted(completedDates, date)
 
 private fun repeatLabel(rule: String): String = when (rule) { "DAILY" -> "每天"; "WEEKLY" -> "每周"; "WORKDAYS" -> "工作日"; "CUSTOM" -> "自定义"; else -> "一次性" }
 
 private fun calculateStreak(state: LearnListUiState, today: LocalDate, restDays: Set<DayOfWeek> = emptySet()): Int {
-    val input = DailyProgressMapper.from(state.projects + state.archivedProjects, state.tasks, state.reviewLogs, state.readingPlans, state.readingTargets, state.pageLogs, state.todos)
+    val input = DailyProgressMapper.from(
+        projects = state.projects + state.archivedProjects,
+        tasks = state.tasks,
+        reviewLogs = state.reviewLogs,
+        readingPlans = state.readingPlans,
+        readingTargets = state.readingTargets,
+        pageLogs = state.pageLogs,
+        readingAdjustments = state.readingAdjustments,
+        todos = state.todos,
+    )
     val calculator = DailyProgressCalculator()
     var streak = 0
     var date = today
@@ -1660,10 +2206,13 @@ private fun goalActivities(state: LearnListUiState): List<GoalActivity> = buildL
     val planProjects = state.readingPlans.associate { it.id to it.projectId }
     val taskProjects = state.tasks.associate { it.id to it.projectId }
     state.pageLogs.forEach { log -> runCatching { LocalDate.parse(log.localDate) }.getOrNull()?.let { add(GoalActivity(GoalMetric.READING_PAGES, it, log.pagesRead, planProjects[log.planId])) } }
+    state.readingAdjustments.forEach { adjustment -> runCatching { LocalDate.parse(adjustment.localDate) }.getOrNull()?.let { add(GoalActivity(GoalMetric.READING_PAGES, it, adjustment.deltaPages, planProjects[adjustment.planId])) } }
     state.reviewLogs.forEach { log -> runCatching { LocalDate.parse(log.reviewedOn) }.getOrNull()?.let { add(GoalActivity(GoalMetric.REVIEW_TASKS, it, 1, taskProjects[log.taskId])) } }
-    state.todos.forEach { todo -> todo.completedDates.split(',').mapNotNull { token -> runCatching { LocalDate.parse(token) }.getOrNull() }.forEach { add(GoalActivity(GoalMetric.TODO_DONE, it, 1)) } }
-    state.focusSessions.forEach { session -> add(GoalActivity(GoalMetric.FOCUS_MINUTES, session.startedAt.toLocalDate(), session.actualMinutes, session.projectId)) }
+    state.todos.forEach { todo -> todo.completedDates.split(',').mapNotNull { token -> runCatching { LocalDate.parse(token) }.getOrNull() }.forEach { date -> add(GoalActivity(GoalMetric.TODO_DONE, date, 1, todo.projectId)) } }
+    state.focusSessions.forEach { session -> add(GoalActivity(GoalMetric.FOCUS_MINUTES, session.activityDate(), session.actualSeconds / 60, session.projectId)) }
 }
+
+private fun FocusSessionEntity.activityDate(): LocalDate = (endedAt ?: startedAt).toLocalDate()
 
 private fun metricLabel(metric: String): String = when (metric) { "READING_PAGES" -> "阅读页数"; "REVIEW_TASKS" -> "复习项"; "TODO_DONE" -> "待办完成"; else -> "专注分钟" }
 private fun periodLabel(period: String): String = when (period) { "WEEKLY" -> "本周"; "MONTHLY" -> "本月"; "CUSTOM" -> "自定义"; else -> "今天" }
@@ -1674,6 +2223,18 @@ private fun feedbackModeLabel(soundEnabled: Boolean, vibrationEnabled: Boolean):
     soundEnabled -> "仅声音"
     vibrationEnabled -> "仅振动"
     else -> "静音"
+}
+private fun feedbackOverrideLabel(mode: String): String = when (mode) {
+    "SOUND" -> "仅声音"
+    "VIBRATION" -> "仅振动"
+    "BOTH" -> "声音 + 振动"
+    "OFF" -> "关闭"
+    else -> "跟随全局"
+}
+private fun phaseLabel(phase: String): String = when (phase) {
+    "SHORT_BREAK" -> "短休息"
+    "LONG_BREAK" -> "长休息"
+    else -> "专注进行中"
 }
 private fun formatBytes(bytes: Long): String {
     val units = arrayOf("B", "KB", "MB", "GB")
@@ -1702,39 +2263,69 @@ private fun ProjectPicker(projects: List<ProjectEntity>, selected: String, onSel
 }
 
 @Composable
-private fun ProjectDialog(onDismiss: () -> Unit, onSave: (String, String, String, String) -> Unit) {
-    var title by rememberSaveable { mutableStateOf("") }; var type by rememberSaveable { mutableStateOf("书籍") }; var description by rememberSaveable { mutableStateOf("") }; var tags by rememberSaveable { mutableStateOf("") }
-    FormDialog("新建学习项目", onDismiss, "创建", { OutlinedTextField(title, { title = it }, label = { Text("名称") }, singleLine = true); ChoiceRow("项目类型", type, listOf("书籍", "课程", "技能"), { it }) { type = it }; OutlinedTextField(description, { description = it }, label = { Text("简介（可选）") }); OutlinedTextField(tags, { tags = it }, label = { Text("标签，用逗号分隔") }, singleLine = true) }) { onSave(title, type, description, tags) }
+private fun FocusBindingPicker(
+    label: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelected: (String) -> Unit,
+) {
+    var expanded by remember(label) { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selected }?.second ?: options.firstOrNull()?.second.orEmpty()
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = Color.White.copy(alpha = 0.78f), fontSize = 11.sp)
+        Box {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)),
+            ) {
+                Text(selectedLabel, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Icon(Icons.Default.ExpandMore, null)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { (id, title) ->
+                    DropdownMenuItem(text = { Text(title) }, onClick = { onSelected(id); expanded = false })
+                }
+            }
+        }
+    }
 }
 
 @Composable
-private fun TaskDialog(projects: List<ProjectEntity>, initialProjectId: String, onDismiss: () -> Unit, onSave: (String, String, String, String, String, Boolean) -> Unit) {
-    var projectId by rememberSaveable { mutableStateOf(initialProjectId) }; var title by rememberSaveable { mutableStateOf("") }; var prompt by rememberSaveable { mutableStateOf("") }; var notes by rememberSaveable { mutableStateOf("") }; var source by rememberSaveable { mutableStateOf("") }; var required by rememberSaveable { mutableStateOf(true) }
-    FormDialog("新建学习任务", onDismiss, "加入", { ProjectPicker(projects, projectId) { projectId = it }; OutlinedTextField(title, { title = it }, label = { Text("任务标题") }, singleLine = true); OutlinedTextField(prompt, { prompt = it }, label = { Text("回忆提示（可选）") }); OutlinedTextField(notes, { notes = it }, label = { Text("资料/笔记（复习时默认隐藏）") }); OutlinedTextField(source, { source = it }, label = { Text("来源（可选）") }, singleLine = true); FilterChip(selected = required, onClick = { required = !required }, label = { Text(if (required) "必做行动" else "可选行动") }) }) { onSave(projectId, title, prompt, notes, source, required) }
+private fun ProjectDialog(initialProject: ProjectEntity? = null, onDismiss: () -> Unit, onSave: (String, String, String, String) -> Unit) {
+    var title by rememberSaveable(initialProject?.id) { mutableStateOf(initialProject?.title.orEmpty()) }; var type by rememberSaveable(initialProject?.id) { mutableStateOf(initialProject?.type ?: "书籍") }; var description by rememberSaveable(initialProject?.id) { mutableStateOf(initialProject?.description.orEmpty()) }; var tags by rememberSaveable(initialProject?.id) { mutableStateOf(initialProject?.tagCsv.orEmpty()) }
+    FormDialog(if (initialProject == null) "新建学习项目" else "编辑学习项目", onDismiss, if (initialProject == null) "创建" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("名称") }, singleLine = true); ChoiceRow("项目类型", type, listOf("书籍", "课程", "技能"), { it }) { type = it }; OutlinedTextField(description, { description = it }, label = { Text("简介（可选）") }); OutlinedTextField(tags, { tags = it }, label = { Text("标签，用逗号分隔") }, singleLine = true) }) { onSave(title, type, description, tags) }
 }
 
 @Composable
-private fun ReadingDialog(projects: List<ProjectEntity>, initialProjectId: String, onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
-    var projectId by rememberSaveable { mutableStateOf(initialProjectId) }; var title by rememberSaveable { mutableStateOf("") }; var total by rememberSaveable { mutableStateOf("") }; var target by rememberSaveable { mutableStateOf("") }; var deadline by rememberSaveable { mutableStateOf("") }
-    FormDialog("新建阅读计划", onDismiss, "创建", { ProjectPicker(projects, projectId) { projectId = it }; OutlinedTextField(title, { title = it }, label = { Text("书名或资料名") }, singleLine = true); OutlinedTextField(total, { total = it }, label = { Text("总页数") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(target, { target = it }, label = { Text("每日必须看多少页") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(deadline, { deadline = it }, label = { Text("截止日 YYYY-MM-DD（可选）") }, singleLine = true); Text("设置截止日后，可将剩余页数一键均摊。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }) { onSave(projectId, title, total, target, deadline) }
+private fun TaskDialog(projects: List<ProjectEntity>, initialProjectId: String, initialTask: LearningTaskEntity? = null, onDismiss: () -> Unit, onSave: (String, String, String, String, String, Boolean) -> Unit) {
+    var projectId by rememberSaveable(initialTask?.id) { mutableStateOf(initialTask?.projectId ?: initialProjectId) }; var title by rememberSaveable(initialTask?.id) { mutableStateOf(initialTask?.title.orEmpty()) }; var prompt by rememberSaveable(initialTask?.id) { mutableStateOf(initialTask?.prompt.orEmpty()) }; var notes by rememberSaveable(initialTask?.id) { mutableStateOf(initialTask?.notes.orEmpty()) }; var source by rememberSaveable(initialTask?.id) { mutableStateOf(initialTask?.source.orEmpty()) }; var required by rememberSaveable(initialTask?.id) { mutableStateOf(initialTask?.isRequired ?: true) }
+    FormDialog(if (initialTask == null) "新建学习任务" else "编辑学习任务", onDismiss, if (initialTask == null) "加入" else "保存", { ProjectPicker(projects, projectId) { projectId = it }; OutlinedTextField(title, { title = it }, label = { Text("任务标题") }, singleLine = true); OutlinedTextField(prompt, { prompt = it }, label = { Text("回忆提示（可选）") }); OutlinedTextField(notes, { notes = it }, label = { Text("资料/笔记（复习时默认隐藏）") }); OutlinedTextField(source, { source = it }, label = { Text("来源（可选）") }, singleLine = true); FilterChip(selected = required, onClick = { required = !required }, label = { Text(if (required) "必做行动" else "可选行动") }) }) { onSave(projectId, title, prompt, notes, source, required) }
 }
 
 @Composable
-private fun TodoDialog(onDismiss: () -> Unit, onSave: (String, String, Boolean, String, String, String) -> Unit) {
-    var title by rememberSaveable { mutableStateOf("") }; var notes by rememberSaveable { mutableStateOf("") }; var required by rememberSaveable { mutableStateOf(true) }; var repeat by rememberSaveable { mutableStateOf("ONCE") }; var custom by rememberSaveable { mutableStateOf("") }; var dueDate by rememberSaveable { mutableStateOf(LocalDate.now().toString()) }
-    FormDialog("新建待办", onDismiss, "添加", { OutlinedTextField(title, { title = it }, label = { Text("待办内容") }, singleLine = true); OutlinedTextField(notes, { notes = it }, label = { Text("备注（可选）") }); ChoiceRow("重复方式", repeat, listOf("ONCE", "DAILY", "WEEKLY", "WORKDAYS", "CUSTOM"), ::repeatLabel) { repeat = it }; if (repeat == "CUSTOM") OutlinedTextField(custom, { custom = it }, label = { Text("星期数字：1,3,5") }, singleLine = true); OutlinedTextField(dueDate, { dueDate = it }, label = { Text(if (repeat == "ONCE") "到期日 YYYY-MM-DD" else "开始日期 YYYY-MM-DD") }, singleLine = true); FilterChip(selected = required, onClick = { required = !required }, label = { Text(if (required) "必做" else "可选") }) }) { onSave(title, notes, required, repeat, custom, dueDate) }
+private fun ReadingDialog(projects: List<ProjectEntity>, initialProjectId: String, initialPlan: ReadingPlanEntity? = null, onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
+    var projectId by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.projectId ?: initialProjectId) }; var title by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.title.orEmpty()) }; var total by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.totalPages?.toString().orEmpty()) }; var target by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.dailyTarget?.toString().orEmpty()) }; var deadline by rememberSaveable(initialPlan?.id) { mutableStateOf(initialPlan?.deadline.orEmpty()) }
+    FormDialog(if (initialPlan == null) "新建阅读计划" else "编辑阅读计划", onDismiss, if (initialPlan == null) "创建" else "保存", { ProjectPicker(projects, projectId) { projectId = it }; OutlinedTextField(title, { title = it }, label = { Text("书名或资料名") }, singleLine = true); OutlinedTextField(total, { total = it }, label = { Text("总页数") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(target, { target = it }, label = { Text("每日必须看多少页") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(deadline, { deadline = it }, label = { Text("截止日 YYYY-MM-DD（可选）") }, singleLine = true); Text("设置截止日后，可将剩余页数一键均摊。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }) { onSave(projectId, title, total, target, deadline) }
 }
 
 @Composable
-private fun GoalDialog(onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
-    var title by rememberSaveable { mutableStateOf("") }; var metric by rememberSaveable { mutableStateOf("FOCUS_MINUTES") }; var target by rememberSaveable { mutableStateOf("") }; var period by rememberSaveable { mutableStateOf("DAILY") }; var endDate by rememberSaveable { mutableStateOf("") }
-    FormDialog("新建量化目标", onDismiss, "创建", { OutlinedTextField(title, { title = it }, label = { Text("目标名称") }, singleLine = true); ChoiceRow("统计对象", metric, listOf("FOCUS_MINUTES", "READING_PAGES", "REVIEW_TASKS", "TODO_DONE"), ::metricLabel) { metric = it }; OutlinedTextField(target, { target = it }, label = { Text("目标值") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); ChoiceRow("周期", period, listOf("DAILY", "WEEKLY", "MONTHLY", "CUSTOM"), ::periodLabel) { period = it }; if (period == "CUSTOM") OutlinedTextField(endDate, { endDate = it }, label = { Text("截止日 YYYY-MM-DD") }, singleLine = true) }) { onSave(title, metric, target, period, endDate) }
+private fun TodoDialog(projects: List<ProjectEntity> = emptyList(), initialTodo: TodoEntity? = null, onDismiss: () -> Unit, onSave: (String, String, Boolean, String, String, String, String?) -> Unit) {
+    var title by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.title.orEmpty()) }; var notes by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.notes.orEmpty()) }; var required by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.isRequired ?: true) }; var repeat by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.repeatRule ?: "ONCE") }; var custom by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.customRepeatDays.orEmpty()) }; var dueDate by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.dueDate ?: LocalDate.now().toString()) }; var projectId by rememberSaveable(initialTodo?.id) { mutableStateOf(initialTodo?.projectId.orEmpty()) }
+    FormDialog(if (initialTodo == null) "新建待办" else "编辑待办", onDismiss, if (initialTodo == null) "添加" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("待办内容") }, singleLine = true); OutlinedTextField(notes, { notes = it }, label = { Text("备注（可选）") }); if (projects.isNotEmpty()) ProjectPicker(projects, projectId) { projectId = it }; ChoiceRow("重复方式", repeat, listOf("ONCE", "DAILY", "WEEKLY", "WORKDAYS", "CUSTOM"), ::repeatLabel) { repeat = it }; if (repeat == "CUSTOM") OutlinedTextField(custom, { custom = it }, label = { Text("星期数字：1,3,5") }, singleLine = true); OutlinedTextField(dueDate, { dueDate = it }, label = { Text(if (repeat == "ONCE") "到期日 YYYY-MM-DD" else "开始日期 YYYY-MM-DD") }, singleLine = true); FilterChip(selected = required, onClick = { required = !required }, label = { Text(if (required) "必做" else "可选") }) }) { onSave(title, notes, required, repeat, custom, dueDate, projectId.takeIf(String::isNotBlank)) }
 }
 
 @Composable
-private fun CountdownDialog(onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
-    var title by rememberSaveable { mutableStateOf("") }; var date by rememberSaveable { mutableStateOf(LocalDate.now().plusDays(7).toString()) }; var time by rememberSaveable { mutableStateOf("09:00") }; var note by rememberSaveable { mutableStateOf("") }; var reminder by rememberSaveable { mutableStateOf("30") }
-    FormDialog("新建倒计时", onDismiss, "创建", { OutlinedTextField(title, { title = it }, label = { Text("事件名称") }, singleLine = true); OutlinedTextField(date, { date = it }, label = { Text("日期 YYYY-MM-DD") }, singleLine = true); OutlinedTextField(time, { time = it }, label = { Text("时间 HH:MM") }, singleLine = true); OutlinedTextField(reminder, { reminder = it }, label = { Text("提前提醒分钟（可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(note, { note = it }, label = { Text("备注（可选）") }) }) { onSave(title, date, time, note, reminder) }
+private fun GoalDialog(projects: List<ProjectEntity> = emptyList(), initialGoal: GoalEntity? = null, onDismiss: () -> Unit, onSave: (String, String, String, String, String, String?) -> Unit) {
+    var title by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.title.orEmpty()) }; var metric by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.metric ?: "FOCUS_MINUTES") }; var target by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.targetValue?.toString().orEmpty()) }; var period by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.period ?: "DAILY") }; var endDate by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.endDate.orEmpty()) }; var projectId by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.projectId.orEmpty()) }
+    FormDialog(if (initialGoal == null) "新建量化目标" else "编辑量化目标", onDismiss, if (initialGoal == null) "创建" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("目标名称") }, singleLine = true); if (projects.isNotEmpty()) ProjectPicker(projects, projectId) { projectId = it }; ChoiceRow("统计对象", metric, listOf("FOCUS_MINUTES", "READING_PAGES", "REVIEW_TASKS", "TODO_DONE"), ::metricLabel) { metric = it }; OutlinedTextField(target, { target = it }, label = { Text("目标值") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); ChoiceRow("周期", period, listOf("DAILY", "WEEKLY", "MONTHLY", "CUSTOM"), ::periodLabel) { period = it }; if (period == "CUSTOM") OutlinedTextField(endDate, { endDate = it }, label = { Text("截止日 YYYY-MM-DD") }, singleLine = true) }) { onSave(title, metric, target, period, endDate, projectId.takeIf(String::isNotBlank)) }
+}
+
+@Composable
+private fun CountdownDialog(initialCountdown: CountdownEntity? = null, onDismiss: () -> Unit, onSave: (String, String, String, String, String) -> Unit) {
+    var title by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.title.orEmpty()) }; var date by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.let { Instant.ofEpochMilli(it.eventAtEpochMillis).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString() } ?: LocalDate.now().plusDays(7).toString()) }; var time by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.let { Instant.ofEpochMilli(it.eventAtEpochMillis).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withSecond(0).withNano(0).toString() } ?: "09:00") }; var note by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.note.orEmpty()) }; var reminder by rememberSaveable(initialCountdown?.id) { mutableStateOf(initialCountdown?.reminderMinutesBefore?.toString().orEmpty()) }
+    FormDialog(if (initialCountdown == null) "新建倒计时" else "编辑倒计时", onDismiss, if (initialCountdown == null) "创建" else "保存", { OutlinedTextField(title, { title = it }, label = { Text("事件名称") }, singleLine = true); OutlinedTextField(date, { date = it }, label = { Text("日期 YYYY-MM-DD") }, singleLine = true); OutlinedTextField(time, { time = it }, label = { Text("时间 HH:MM") }, singleLine = true); OutlinedTextField(reminder, { reminder = it }, label = { Text("提前提醒分钟（可选）") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); OutlinedTextField(note, { note = it }, label = { Text("备注（可选）") }) }) { onSave(title, date, time, note, reminder) }
 }
 
 @Composable
@@ -1744,9 +2335,79 @@ private fun ReviewDialog(task: LearningTaskEntity, onDismiss: () -> Unit, onRevi
 }
 
 @Composable
+private fun ReviewCorrectionDialog(
+    task: LearningTaskEntity,
+    onDismiss: () -> Unit,
+    onSave: (stage: String, nextReviewDate: String, reason: String) -> Unit,
+) {
+    var stage by rememberSaveable(task.id) { mutableStateOf(task.stage.coerceIn(0, 7).toString()) }
+    var nextReviewDate by rememberSaveable(task.id) { mutableStateOf(task.nextReviewDate ?: LocalDate.now().toString()) }
+    var reason by rememberSaveable(task.id) { mutableStateOf("") }
+    FormDialog(
+        title = "纠正复习计划",
+        onDismiss = onDismiss,
+        confirmLabel = "保存纠正",
+        content = {
+            Text("只修正当前计划，不改写已有复习记录。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            OutlinedTextField(
+                value = stage,
+                onValueChange = { stage = it.filter(Char::isDigit).take(2) },
+                label = { Text("记忆阶段（0—7）") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+            OutlinedTextField(
+                value = nextReviewDate,
+                onValueChange = { nextReviewDate = it },
+                label = { Text("下次复习日期 YYYY-MM-DD") },
+                singleLine = true,
+            )
+            OutlinedTextField(
+                value = reason,
+                onValueChange = { reason = it },
+                label = { Text("纠正原因（可选）") },
+                minLines = 2,
+            )
+        },
+        onConfirm = { onSave(stage, nextReviewDate, reason) },
+    )
+}
+
+@Composable
 private fun PagesDialog(plan: ReadingPlanEntity, pagesToday: Int, onDismiss: () -> Unit, onSave: (String) -> Unit) {
     var pages by rememberSaveable { mutableStateOf("") }
     FormDialog("记录阅读页数", onDismiss, "保存", { Text("${plan.title} · 今天已读 $pagesToday 页", fontWeight = FontWeight.SemiBold); OutlinedTextField(pages, { pages = it }, label = { Text("本次读了多少页") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)); Text("当前页数会自动累加，最多不超过总页数。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }) { onSave(pages) }
+}
+
+@Composable
+private fun ReadingAdjustmentDialog(plan: ReadingPlanEntity, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+    var delta by rememberSaveable(plan.id) { mutableStateOf("") }
+    var reason by rememberSaveable(plan.id) { mutableStateOf("") }
+    FormDialog(
+        title = "纠正阅读页数",
+        onDismiss = onDismiss,
+        confirmLabel = "保存纠正",
+        content = {
+            Text("当前进度：${plan.currentPage} / ${plan.totalPages} 页", fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = delta,
+                onValueChange = { value ->
+                    delta = if (value.startsWith("-")) "-${value.drop(1).filter(Char::isDigit)}" else value.filter(Char::isDigit)
+                },
+                label = { Text("调整页数（可正可负）") },
+                supportingText = { Text("例如 -3 表示撤回 3 页；原始阅读日志不会被改写。") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+            OutlinedTextField(
+                value = reason,
+                onValueChange = { reason = it },
+                label = { Text("调整原因（可选）") },
+                minLines = 2,
+            )
+        },
+        onConfirm = { onSave(delta, reason) },
+    )
 }
 
 @Composable
@@ -1781,7 +2442,17 @@ private fun ChoiceRow(label: String, selected: String, options: List<String>, di
 }
 
 @Composable
+private fun FeedbackModeChoiceRow(label: String, selected: String, onSelect: (String) -> Unit) {
+    ChoiceRow(
+        label = label,
+        selected = selected,
+        options = listOf("GLOBAL", "SOUND", "VIBRATION", "BOTH", "OFF"),
+        display = ::feedbackOverrideLabel,
+        onSelect = onSelect,
+    )
+}
+
+@Composable
 private fun FormDialog(title: String, onDismiss: () -> Unit, confirmLabel: String, content: @Composable ColumnScope.() -> Unit, onConfirm: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, shape = MaterialTheme.shapes.large, containerColor = MaterialTheme.colorScheme.surface, title = { Text(title) }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }, confirmButton = { Button(onClick = onConfirm) { Text(confirmLabel) } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
-

@@ -7,7 +7,6 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
@@ -42,11 +41,14 @@ class ComposeSmokeTest {
         composeRule.onNodeWithText("设置").performClick()
         composeRule.onNodeWithText("更新中心").assertIsDisplayed()
         composeRule.onNodeWithText("检查更新").assertIsDisplayed()
-        composeRule.onNodeWithText("通知权限").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("精确提醒权限").performScrollTo().assertIsDisplayed()
-        composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("声音提示"))
+        val settingsScroll = composeRule.onNode(hasScrollToNodeAction())
+        settingsScroll.performScrollToNode(hasText("通知权限"))
+        composeRule.onNodeWithText("通知权限").assertIsDisplayed()
+        settingsScroll.performScrollToNode(hasText("精确提醒权限"))
+        composeRule.onNodeWithText("精确提醒权限").assertIsDisplayed()
+        settingsScroll.performScrollToNode(hasText("声音提示"))
         composeRule.onNodeWithText("声音提示").assertIsDisplayed()
-        composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("振动提示"))
+        settingsScroll.performScrollToNode(hasText("振动提示"))
         composeRule.onNodeWithText("振动提示").assertIsDisplayed()
     }
 }

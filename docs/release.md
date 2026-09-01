@@ -9,7 +9,7 @@
 - `RELEASE_KEY_ALIAS`
 - `RELEASE_KEY_PASSWORD`
 
-当前仓库已配置这四个 Secret；Secret 值不会回显，也不应写入 Issue、提交或聊天记录。Release 工作流会在推送 `vX.Y.Z` 标签时自动运行，也支持手动输入已有标签；缺少签名 Secret 时会失败，不会发布未签名包。当前稳定版为 `v0.2.7`。
+Secret 值不会回显，也不应写入 Issue、提交或聊天记录。需要由仓库持有人在 GitHub Actions 的仓库设置中配置这四项后，Release 工作流才会发布正式包；缺少签名 Secret 时应失败，不发布未签名包。当前工作树和本机构建环境未证明这些 Secret 已配置；当前稳定版为 `v0.2.7`。
 
 ## 发布步骤
 
@@ -22,10 +22,10 @@
    git push origin v0.2.8
    ```
 
-4. `.github/workflows/release.yml` 会用 Actions Secret 签名 Release APK，验证签名，生成同名 `.sha256` 文件并创建 GitHub Release。
+4. `release.yml` 会用 Actions Secret 签名 Release APK，验证签名，生成同名 `.sha256` 文件并创建 GitHub Release。
 5. 在一台已安装旧版本的 Android 设备上验证 SHA-256、系统安装器和覆盖升级，再向可信用户分发。
 
-如果标签推送没有触发工作流，可以在 Actions 中手动运行 `Android Release`，选择 `main` 分支并在 `release_tag` 输入框填写一个已经存在的 `vX.Y.Z` 标签；工作流会先检出该标签，再执行同样的签名、校验和发布步骤。这样不依赖旧标签里是否已经包含最新的工作流文件。
+如果标签推送没有触发工作流，可以在 Actions 中手动运行 `Android Release`，选择 `main` 分支并填写一个已经存在的 `vX.Y.Z` 标签；工作流会先检出该标签，再执行同样的签名、校验和发布步骤。这样不依赖旧标签里是否已经包含最新的工作流文件。
 
 ## 本地签名验证
 
@@ -39,4 +39,4 @@ $env:RELEASE_KEY_PASSWORD = '...'
 Get-FileHash app\\build\\outputs\\apk\\release\\app-release.apk -Algorithm SHA256
 ```
 
-未设置签名环境变量时，构建会保留 `app-release-unsigned.apk`，这是预期的安全结果。
+未设置签名环境变量时，构建会保留 `app-release-unsigned.apk`，这是预期的安全结果；该文件不能覆盖已安装的正式版本。正式发布前必须用同一 Release keystore 生成并核验签名 APK。

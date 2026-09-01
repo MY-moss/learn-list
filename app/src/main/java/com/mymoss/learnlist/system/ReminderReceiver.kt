@@ -39,8 +39,16 @@ class ReminderReceiver : BroadcastReceiver() {
                 CoroutineScope(Dispatchers.IO).launch {
                     runCatching {
                         if (taskId != null) {
-                            val task = application.repository.snapshot().tasks.firstOrNull { it.id == taskId }
-                            if (task != null && !task.hasLearned) {
+                            val snapshot = application.repository.snapshot()
+                            val task = snapshot.tasks.firstOrNull { it.id == taskId }
+                            val taskProjectActive = task?.let { taskItem ->
+                                snapshot.projects.any { project ->
+                                    project.id == taskItem.projectId && !project.isArchived && !project.isPaused && project.deletedAt == null
+                                }
+                            } == true
+                            if (task == null || task.deletedAt != null || task.isArchived || !taskProjectActive) {
+                                // A notification can outlive an archive/delete operation; stale actions are no-ops.
+                            } else if (!task.hasLearned) {
                                 if (intent.action == ACTION_COMPLETE) {
                                     application.repository.completeInitialLearning(taskId)
                                 } else {
@@ -50,7 +58,6 @@ class ReminderReceiver : BroadcastReceiver() {
                                 application.repository.reviewTask(
                                     taskId = taskId,
                                     rating = if (intent.action == ACTION_COMPLETE) RecallRating.REMEMBERED else RecallRating.SNOOZE,
-                                    snoozeUntil = if (intent.action == ACTION_SNOOZE) LocalDate.now().plusDays(1) else null,
                                 )
                             }
                         }
@@ -67,22 +74,61 @@ class ReminderReceiver : BroadcastReceiver() {
                 ensureNotificationChannel(context)
                 val snapshot = application.repository.snapshot()
                 val settings = SettingsRepository(context.applicationContext).settings.first()
-                FeedbackManager.play(context.applicationContext, settings)
-                if (BuildPermission.canPost(context)) {
-                    postNotification(context, intent, kind, snapshot)
+                val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID)
+                val reminder = snapshot.reminders.firstOrNull { it.id == reminderId }
+                val project = intent.getStringExtra(EXTRA_PROJECT_ID)?.let { projectId ->
+                    snapshot.projects.firstOrNull { it.id == projectId }
                 }
-                if (kind != "COUNTDOWN") {
-                    val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID)
-                    snapshot.reminders.firstOrNull { it.id == reminderId && it.enabled }?.let {
-                        ReminderScheduler(context, application.repository).scheduleReminder(it)
+                val dueTask = if (kind == "PROJECT") {
+                    snapshot.tasks.firstOrNull { task ->
+                        !task.isArchived && task.deletedAt == null &&
+                            (project?.id == null || task.projectId == project.id) &&
+                            snapshot.projects.any { item ->
+                                item.id == task.projectId && !item.isArchived && !item.isPaused && item.deletedAt == null
+                            } &&
+                            isTaskDue(task, LocalDate.now())
                     }
+                } else {
+                    null
+                }
+                val countdownActive = if (kind == "COUNTDOWN") {
+                    val countdownId = intent.getStringExtra(EXTRA_COUNTDOWN_ID)
+                    snapshot.countdowns.any { it.id == countdownId && !it.isCompleted && !it.isArchived }
+                } else {
+                    true
+                }
+                val canDeliver = ReminderDeliveryPolicy.shouldDeliver(
+                    kind = kind,
+                    reminderEnabled = if (kind == "COUNTDOWN") true else reminder?.enabled == true,
+                    projectActive = project != null && !project.isArchived && !project.isPaused && project.deletedAt == null,
+                    hasDueTask = dueTask != null,
+                    countdownActive = countdownActive,
+                )
+                if (canDeliver) {
+                    FeedbackManager.play(
+                        context.applicationContext,
+                        settings,
+                        if (kind == "COUNTDOWN") FeedbackManager.FeedbackContext.COUNTDOWN else FeedbackManager.FeedbackContext.REMINDER,
+                    )
+                    if (BuildPermission.canPost(context)) {
+                        postNotification(context, intent, kind, snapshot, dueTask?.id)
+                    }
+                }
+                reminder?.takeIf { it.enabled && (it.kind != "PROJECT" || (project != null && !project.isArchived && !project.isPaused && project.deletedAt == null)) }?.let {
+                    ReminderScheduler(context, application.repository).scheduleReminder(it)
                 }
             }
             pendingResult.finish()
         }
     }
 
-    private fun postNotification(context: Context, intent: Intent, kind: String, snapshot: BackupSnapshot) {
+    private fun postNotification(
+        context: Context,
+        intent: Intent,
+        kind: String,
+        snapshot: BackupSnapshot,
+        resolvedTaskId: String? = null,
+    ) {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
@@ -109,12 +155,12 @@ class ReminderReceiver : BroadcastReceiver() {
         val taskId = if (kind != "PROJECT") {
             null
         } else {
-            intent.getStringExtra(EXTRA_TASK_ID)
+            resolvedTaskId ?: intent.getStringExtra(EXTRA_TASK_ID)
                 ?: snapshot.tasks.firstOrNull { task ->
-                    !task.isArchived &&
+                    !task.isArchived && task.deletedAt == null &&
                         (intent.getStringExtra(EXTRA_PROJECT_ID) == null || task.projectId == intent.getStringExtra(EXTRA_PROJECT_ID)) &&
                         snapshot.projects.any { project ->
-                            project.id == task.projectId && !project.isArchived && !project.isPaused
+                            project.id == task.projectId && !project.isArchived && !project.isPaused && project.deletedAt == null
                         } &&
                         isTaskDue(task, LocalDate.now())
                 }?.id
@@ -188,4 +234,3 @@ class ReminderReceiver : BroadcastReceiver() {
 private object BuildPermission {
     fun canPost(context: Context): Boolean = android.os.Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
-
