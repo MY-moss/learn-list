@@ -1,17 +1,9 @@
 package com.mymoss.learnlist.system
 
-import android.Manifest
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.mymoss.learnlist.LearnListApplication
-import com.mymoss.learnlist.MainActivity
-import com.mymoss.learnlist.R
 import com.mymoss.learnlist.data.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,47 +29,11 @@ class FocusReceiver : BroadcastReceiver() {
                     )
                     if (settingsRepository.clearFocusTimerIfMatches(startedAt, endAt)) {
                         FeedbackManager.play(context.applicationContext, settings)
-                        postNotification(context.applicationContext, plannedMinutes)
+                        FocusTimerService.postCompletionNotification(context.applicationContext, plannedMinutes)
                     }
                 }
             }
             pendingResult.finish()
         }
     }
-
-    private fun postNotification(context: Context, plannedMinutes: Int) {
-        if (FocusBuildPermission.canPost(context)) {
-            ReminderReceiver.ensureNotificationChannel(context)
-            val openIntent = PendingIntent.getActivity(
-                context,
-                NOTIFICATION_ID,
-                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val notification = NotificationCompat.Builder(context, ReminderReceiver.CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("专注完成")
-                .setContentText("${plannedMinutes.coerceAtLeast(1)} 分钟专注已结束，休息一下吧")
-                .setContentIntent(openIntent)
-                .setAutoCancel(true)
-                .setSilent(true)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .build()
-            try {
-                NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
-            } catch (_: SecurityException) {
-                // Notification permission can be revoked between the check and the post call.
-            }
-        }
-    }
-
-    private companion object {
-        const val NOTIFICATION_ID = 2001
-    }
-}
-
-private object FocusBuildPermission {
-    fun canPost(context: Context): Boolean =
-        android.os.Build.VERSION.SDK_INT < 33 ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 }
