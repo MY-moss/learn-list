@@ -2,7 +2,7 @@
 
 ## 安装首版 APK
 
-推荐下载已签名的稳定版：[v0.2.8 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.2.8)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.2.8/learn-list-v0.2.8.apk)；旁边的 `.sha256` 文件可用于校验完整性。
+推荐下载已签名的稳定版：[v0.3.0 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.3.0)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.3.0/learn-list-v0.3.0.apk)；旁边的 `.sha256` 文件可用于校验完整性。
 
 1. 在手机上允许文件管理器安装来自此来源的应用。
 2. 将 Release APK 或 `app/build/outputs/apk/debug/app-debug.apk` 传到手机并打开。
@@ -42,3 +42,4 @@ Debug APK 只适合自用测试。正式覆盖升级必须使用同一把 Releas
 应用启动或回到前台后最多每 24 小时自动检查一次，也可以在“设置 → 更新中心”手动检查。它只检查仓库的稳定 Release，下载前要求 HTTPS GitHub 地址和 `.sha256` 文件。下载状态会显示连接、断点续传、下载、校验和安装器交接；离开更新页或进程重启后可继续已保存的 `.part` 文件。应用还会校验包名、版本号不能降级以及签名证书必须与当前安装包一致，校验通过后交给 Android 系统安装器。安装仍需要用户确认，不会静默安装；如果你取消安装或先去开启未知来源权限，更新中心会显示“重新打开安装器”，再次点击会重新校验本地包，不会重复下载；本地包丢失或校验失败时才需要重新下载。检查失败不会占用 24 小时窗口，下一次启动或回到前台会继续重试。
 
 当前工作树的 Release 构建若未提供本地签名环境变量，只会生成 `app-release-unsigned.apk`，它不适合覆盖安装；正式包仍需应用持有人自己的 Release keystore。
+
