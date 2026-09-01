@@ -71,13 +71,13 @@ class ReminderReceiver : BroadcastReceiver() {
         }
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
-                runCatching {
-                    ensureNotificationChannel(context)
-                    val snapshot = application.repository.snapshot()
-                    val settings = SettingsRepository(context.applicationContext).settings.first()
-                    val zoneId = ZoneId.systemDefault()
-                    val today = LocalDate.now(zoneId)
-                    val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID)
+            runCatching {
+                ensureNotificationChannel(context)
+                val snapshot = application.repository.snapshot()
+                val settings = SettingsRepository(context.applicationContext).settings.first()
+                val zoneId = ZoneId.systemDefault()
+                val today = LocalDate.now(zoneId)
+                val reminderId = intent.getStringExtra(EXTRA_REMINDER_ID)
                 val reminder = snapshot.reminders.firstOrNull { it.id == reminderId }
                 val project = intent.getStringExtra(EXTRA_PROJECT_ID)?.let { projectId ->
                     snapshot.projects.firstOrNull { it.id == projectId }
