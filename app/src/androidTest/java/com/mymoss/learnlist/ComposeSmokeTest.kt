@@ -50,3 +50,4 @@ class ComposeSmokeTest {
         composeRule.onNodeWithText("振动提示").assertIsDisplayed()
     }
 }
+

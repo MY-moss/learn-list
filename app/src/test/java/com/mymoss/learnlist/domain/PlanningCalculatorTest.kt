@@ -91,3 +91,4 @@ class PlanningCalculatorTest {
         assertEquals(true, progress.isComplete)
     }
 }
+

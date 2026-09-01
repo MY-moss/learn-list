@@ -71,3 +71,4 @@ object StreakCalculator {
         return streak
     }
 }
+
