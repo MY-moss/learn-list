@@ -724,7 +724,7 @@ internal suspend fun runViewModelAction(
     }
 }
 
-fun Long.toLocalDate(): LocalDate = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
+fun Long.toLocalDate(zoneId: ZoneId = ZoneId.systemDefault()): LocalDate = Instant.ofEpochMilli(this).atZone(zoneId).toLocalDate()
 
 fun String.toDayOfWeekSet(): Set<DayOfWeek> = split(',').mapNotNull { token ->
     token.trim().toIntOrNull()?.let { runCatching { DayOfWeek.of(it) }.getOrNull() }

@@ -415,7 +415,7 @@ fun LearnListApp(
                     .fillMaxHeight(),
             ) {
             composable(AppTab.TODAY.name) {
-                TodayScreen(state, padding, currentDay, deviceToday, { followsToday = it == deviceToday; currentDay = it }, viewModel, { showReviewDialog = it }, { showCorrectionDialog = it }, { showPagesDialog = it }, { showReadingAdjustmentDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget, reviewBatchSize)
+                TodayScreen(state, padding, currentDay, deviceToday, { followsToday = it == deviceToday; currentDay = it }, viewModel, { showReviewDialog = it }, { showCorrectionDialog = it }, { showPagesDialog = it }, { showReadingAdjustmentDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget, reviewBatchSize, appClock.zone)
             }
             composable(AppTab.LEARN.name) {
                 LearnScreen(
@@ -454,10 +454,11 @@ fun LearnListApp(
                     onPause = viewModel::pauseFocus,
                     onResume = viewModel::resumeFocus,
                     onSkip = viewModel::skipFocus,
+                    zoneId = appClock.zone,
                 )
             }
             composable(AppTab.STATS.name) {
-                StatsScreen(state, padding, currentDay, { showGoalDialog = true }, { showCountdownDialog = true }, viewModel::completeCountdown, { editGoal = it }, viewModel::deleteGoal, { editCountdown = it }, viewModel::deleteCountdown)
+                StatsScreen(state, padding, currentDay, { showGoalDialog = true }, { showCountdownDialog = true }, viewModel::completeCountdown, { editGoal = it }, viewModel::deleteGoal, { editCountdown = it }, viewModel::deleteCountdown, appClock.zone)
             }
             composable(AppTab.SETTINGS.name) {
                 SettingsScreen(
@@ -514,6 +515,7 @@ fun LearnListApp(
                     onPermanentlyDeleteGoal = viewModel::permanentlyDeleteGoal,
                     onRestoreDeletedCountdown = viewModel::restoreDeletedCountdown,
                     onPermanentlyDeleteCountdown = viewModel::permanentlyDeleteCountdown,
+                    zoneId = appClock.zone,
                 )
             }
             }
@@ -826,6 +828,7 @@ private fun TodayScreen(
     onRebalance: (String) -> Unit,
     onAdjustTarget: (String, Int) -> Unit,
     reviewBatchSize: Int,
+    zoneId: ZoneId,
 ) {
     val activeProjectIds = state.projects.filterNot(ProjectEntity::isPaused).map(ProjectEntity::id).toSet()
     val dueTasks = state.tasks
@@ -854,6 +857,7 @@ private fun TodayScreen(
         pageLogs = state.pageLogs,
         readingAdjustments = state.readingAdjustments,
         todos = state.todos,
+        zoneId = zoneId,
     )
     val dailyProgressCalculator = remember { DailyProgressCalculator() }
     var missedTodoPrompt by remember { mutableStateOf<TodoEntity?>(null) }
@@ -867,10 +871,10 @@ private fun TodayScreen(
         }
     }
     val progress = dailyProgressCalculator.calculate(dailyProgressInput, today)
-    val streak = calculateStreak(state, today, state.restDays)
+    val streak = calculateStreak(state, today, state.restDays, zoneId)
     val readingPages = readingPagesOn(state.pageLogs, state.readingAdjustments, date = today)
     val todoDone = dueTodos.count { it.isCompletedOn(today) }
-    val focusMinutes = state.focusSessions.filter { it.activityDate() == today }.sumOf { it.actualSeconds / 60 }
+    val focusMinutes = state.focusSessions.filter { it.activityDate(zoneId) == today }.sumOf { it.actualSeconds / 60 }
     val percent = progress.percent
     var showHistoryCalendar by rememberSaveable { mutableStateOf(false) }
 
@@ -1415,6 +1419,7 @@ private fun FocusScreen(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onSkip: () -> Unit,
+    zoneId: ZoneId,
 ) {
     val minutes = state.focusRemainingSeconds / 60
     val seconds = state.focusRemainingSeconds % 60
@@ -1513,7 +1518,7 @@ private fun FocusScreen(
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) { Icon(Icons.Default.Timer, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(19.dp)) }
                     Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) { Text("${session.actualMinutes} 分钟专注", fontWeight = FontWeight.SemiBold); Text(session.startedAt.toLocalDate().toString(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
+                    Column(Modifier.weight(1f)) { Text("${session.actualMinutes} 分钟专注", fontWeight = FontWeight.SemiBold); Text(session.startedAt.toLocalDate(zoneId).toString(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
                     Text(session.status, color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
                 }
             }
@@ -1533,6 +1538,7 @@ private fun StatsScreen(
     onDeleteGoal: (String) -> Unit,
     onEditCountdown: (CountdownEntity) -> Unit,
     onDeleteCountdown: (String) -> Unit,
+    zoneId: ZoneId,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
@@ -1556,15 +1562,15 @@ private fun StatsScreen(
         }
         item {
             SectionHeader("最近 28 天", "按单位分别查看复习、阅读、专注和待办")
-            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricHeatMap(state, today) } }
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricHeatMap(state, today, zoneId) } }
         }
         item {
             SectionHeader("最近 7 天", "每条趋势保持自己的计量单位")
-            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricTrendChart(state, today) } }
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) { Column(Modifier.padding(16.dp)) { MetricTrendChart(state, today, zoneId) } }
         }
         item { SectionHeader("量化目标", "给想坚持的事一个可见的终点", trailing = { TextButton(onClick = onNewGoal) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Text("新增") } }) }
         if (state.goals.isEmpty()) item { EmptyCard("例如：每天专注 50 分钟、每周复习 20 项。", Icons.Default.Flag) }
-        items(state.goals, key = { it.id }) { goal -> GoalCard(goal, state, today, { onEditGoal(goal) }, { onDeleteGoal(goal.id) }) }
+        items(state.goals, key = { it.id }) { goal -> GoalCard(goal, state, today, zoneId, { onEditGoal(goal) }, { onDeleteGoal(goal.id) }) }
         item { SectionHeader("倒计时", "考试、截止日或下一次重要事件", trailing = { TextButton(onClick = onNewCountdown) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Text("新增") } }) }
         if (state.countdowns.isEmpty()) item { EmptyCard("为重要事件留一个提前量。", Icons.Default.CalendarToday) }
         items(state.countdowns, key = { it.id }) { countdown -> CountdownCard(countdown, { onCompleteCountdown(countdown.id) }, { onEditCountdown(countdown) }, { onDeleteCountdown(countdown.id) }) }
@@ -1624,6 +1630,7 @@ private fun SettingsScreen(
     onPermanentlyDeleteGoal: (String) -> Unit,
     onRestoreDeletedCountdown: (String) -> Unit,
     onPermanentlyDeleteCountdown: (String) -> Unit,
+    zoneId: ZoneId,
 ) {
     var showReminderDialog by rememberSaveable { mutableStateOf(false) }
     var reminderToDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -1682,7 +1689,7 @@ private fun SettingsScreen(
         }
         item { SectionHeader("更新中心", "每 24 小时自动检查一次，也可以现在手动检查") }
         item {
-            UpdateCenterCard(updateState, onCheckForUpdate, onDownloadUpdate, onInstallUpdate, onCancelUpdate, onDismissUpdate)
+            UpdateCenterCard(updateState, onCheckForUpdate, onDownloadUpdate, onInstallUpdate, onCancelUpdate, onDismissUpdate, zoneId)
         }
         item { SectionHeader("复习节奏", "建议批次只影响提示，不会隐藏逾期内容") }
         item {
@@ -1944,7 +1951,7 @@ private fun FeedbackToggleRow(
 }
 
 @Composable
-internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, onDownload: () -> Unit, onInstall: () -> Unit, onCancel: () -> Unit, onDismiss: () -> Unit) {
+internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, onDownload: () -> Unit, onInstall: () -> Unit, onCancel: () -> Unit, onDismiss: () -> Unit, zoneId: ZoneId = ZoneId.systemDefault()) {
     val available = updateState.available
     val canRetryInstall = available != null && updateState.phase == UpdatePhase.INSTALLING && !updateState.isDownloading
     val phaseLabel = when (updateState.phase) {
@@ -1986,7 +1993,7 @@ internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, o
             }
             UpdateProgressFeedback(updateState)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("上次检查：${formatLastChecked(updateState.lastCheckedAtEpochMillis)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Text("上次检查：${formatLastChecked(updateState.lastCheckedAtEpochMillis, zoneId)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 if (available != null) {
                     Button(onClick = if (canRetryInstall) onInstall else onDownload, enabled = !updateState.isDownloading) {
                         Icon(if (canRetryInstall) Icons.AutoMirrored.Filled.OpenInNew else Icons.Default.CloudDownload, null, modifier = Modifier.size(17.dp))
@@ -2162,8 +2169,8 @@ private fun TodoCard(todo: TodoEntity, today: LocalDate, onToggle: () -> Unit, o
 }
 
 @Composable
-private fun GoalCard(goal: GoalEntity, state: LearnListUiState, today: LocalDate, onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
-    val current = goalCurrent(goal, state, today)
+private fun GoalCard(goal: GoalEntity, state: LearnListUiState, today: LocalDate, zoneId: ZoneId, onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
+    val current = goalCurrent(goal, state, today, zoneId)
     val percent = GoalProgressCalculator().calculate(current, goal.targetValue.coerceAtLeast(1)).percent
     Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2225,7 +2232,7 @@ private fun CountdownCard(countdown: CountdownEntity, onComplete: () -> Unit, on
 private data class ActivityMetricSeries(val label: String, val unit: String, val color: Color, val values: List<Int>)
 
 @Composable
-private fun activityMetricSeries(state: LearnListUiState, today: LocalDate, days: Int): List<ActivityMetricSeries> {
+private fun activityMetricSeries(state: LearnListUiState, today: LocalDate, days: Int, zoneId: ZoneId): List<ActivityMetricSeries> {
     val dates = (days - 1 downTo 0).map { today.minusDays(it.toLong()) }
     val todoValues = state.todos.map { todo ->
         todo.completedDates.split(',').mapNotNull { token -> runCatching { LocalDate.parse(token) }.getOrNull() }.toSet()
@@ -2235,14 +2242,14 @@ private fun activityMetricSeries(state: LearnListUiState, today: LocalDate, days
         ActivityMetricSeries("阅读页", "页", MaterialTheme.colorScheme.secondary, dates.map { date ->
             (state.pageLogs.filter { it.localDate == date.toString() }.sumOf(PageLogEntity::pagesRead) + state.readingAdjustments.filter { it.localDate == date.toString() }.sumOf(ReadingAdjustmentEntity::deltaPages)).coerceAtLeast(0)
         }),
-        ActivityMetricSeries("专注", "分", MaterialTheme.colorScheme.tertiary, dates.map { date -> state.focusSessions.filter { it.activityDate() == date }.sumOf { it.actualSeconds / 60 } }),
+        ActivityMetricSeries("专注", "分", MaterialTheme.colorScheme.tertiary, dates.map { date -> state.focusSessions.filter { it.activityDate(zoneId) == date }.sumOf { it.actualSeconds / 60 } }),
         ActivityMetricSeries("待办", "项", MaterialTheme.colorScheme.error, dates.map { date -> todoValues.sumOf { completed -> if (date in completed) 1 else 0 } }),
     )
 }
 
 @Composable
-private fun MetricHeatMap(state: LearnListUiState, today: LocalDate) {
-    val series = activityMetricSeries(state, today, 28)
+private fun MetricHeatMap(state: LearnListUiState, today: LocalDate, zoneId: ZoneId) {
+    val series = activityMetricSeries(state, today, 28, zoneId)
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         series.forEach { metric ->
             val max = metric.values.maxOrNull()?.coerceAtLeast(1) ?: 1
@@ -2262,8 +2269,8 @@ private fun MetricHeatMap(state: LearnListUiState, today: LocalDate) {
 }
 
 @Composable
-private fun MetricTrendChart(state: LearnListUiState, today: LocalDate) {
-    val series = activityMetricSeries(state, today, 7)
+private fun MetricTrendChart(state: LearnListUiState, today: LocalDate, zoneId: ZoneId) {
+    val series = activityMetricSeries(state, today, 7, zoneId)
     Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
         series.forEach { metric ->
             val max = metric.values.maxOrNull()?.coerceAtLeast(1) ?: 1
@@ -2364,7 +2371,7 @@ private fun TodoEntity.isCompletedOn(date: LocalDate): Boolean = TodoCompletion.
 
 private fun repeatLabel(rule: String): String = when (rule) { "DAILY" -> "每天"; "WEEKLY" -> "每周"; "WORKDAYS" -> "工作日"; "CUSTOM" -> "自定义"; else -> "一次性" }
 
-private fun calculateStreak(state: LearnListUiState, today: LocalDate, restDays: Set<DayOfWeek> = emptySet()): Int {
+private fun calculateStreak(state: LearnListUiState, today: LocalDate, restDays: Set<DayOfWeek> = emptySet(), zoneId: ZoneId = ZoneId.systemDefault()): Int {
     val input = DailyProgressMapper.from(
         projects = state.projects + state.archivedProjects,
         tasks = state.tasks,
@@ -2374,6 +2381,7 @@ private fun calculateStreak(state: LearnListUiState, today: LocalDate, restDays:
         pageLogs = state.pageLogs,
         readingAdjustments = state.readingAdjustments,
         todos = state.todos,
+        zoneId = zoneId,
     )
     val calculator = DailyProgressCalculator()
     var streak = 0
@@ -2391,30 +2399,30 @@ private fun calculateStreak(state: LearnListUiState, today: LocalDate, restDays:
     return streak
 }
 
-private fun goalCurrent(goal: GoalEntity, state: LearnListUiState, today: LocalDate): Int {
+private fun goalCurrent(goal: GoalEntity, state: LearnListUiState, today: LocalDate, zoneId: ZoneId = ZoneId.systemDefault()): Int {
     val metric = GoalMetric.fromStorage(goal.metric) ?: return 0
     val period = GoalPeriod.fromStorage(goal.period) ?: return 0
     val startDate = runCatching { LocalDate.parse(goal.startDate) }.getOrDefault(today)
     val endDate = goal.endDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-    return GoalProgressAggregator().current(GoalDefinition(metric, period, startDate, endDate, goal.projectId), today, goalActivities(state))
+    return GoalProgressAggregator().current(GoalDefinition(metric, period, startDate, endDate, goal.projectId), today, goalActivities(state, zoneId))
 }
 
-private fun goalActivities(state: LearnListUiState): List<GoalActivity> = buildList {
+private fun goalActivities(state: LearnListUiState, zoneId: ZoneId = ZoneId.systemDefault()): List<GoalActivity> = buildList {
     val planProjects = state.readingPlans.associate { it.id to it.projectId }
     val taskProjects = state.tasks.associate { it.id to it.projectId }
     state.pageLogs.forEach { log -> runCatching { LocalDate.parse(log.localDate) }.getOrNull()?.let { add(GoalActivity(GoalMetric.READING_PAGES, it, log.pagesRead, planProjects[log.planId])) } }
     state.readingAdjustments.forEach { adjustment -> runCatching { LocalDate.parse(adjustment.localDate) }.getOrNull()?.let { add(GoalActivity(GoalMetric.READING_PAGES, it, adjustment.deltaPages, planProjects[adjustment.planId])) } }
     state.reviewLogs.forEach { log -> runCatching { LocalDate.parse(log.reviewedOn) }.getOrNull()?.let { add(GoalActivity(GoalMetric.REVIEW_TASKS, it, 1, taskProjects[log.taskId])) } }
     state.todos.forEach { todo -> todo.completedDates.split(',').mapNotNull { token -> runCatching { LocalDate.parse(token) }.getOrNull() }.forEach { date -> add(GoalActivity(GoalMetric.TODO_DONE, date, 1, todo.projectId)) } }
-    state.focusSessions.forEach { session -> add(GoalActivity(GoalMetric.FOCUS_MINUTES, session.activityDate(), session.actualSeconds / 60, session.projectId)) }
+    state.focusSessions.forEach { session -> add(GoalActivity(GoalMetric.FOCUS_MINUTES, session.activityDate(zoneId), session.actualSeconds / 60, session.projectId)) }
 }
 
-private fun FocusSessionEntity.activityDate(): LocalDate = (endedAt ?: startedAt).toLocalDate()
+private fun FocusSessionEntity.activityDate(zoneId: ZoneId = ZoneId.systemDefault()): LocalDate = (endedAt ?: startedAt).toLocalDate(zoneId)
 
 private fun metricLabel(metric: String): String = when (metric) { "READING_PAGES" -> "阅读页数"; "REVIEW_TASKS" -> "复习项"; "TODO_DONE" -> "待办完成"; else -> "专注分钟" }
 private fun periodLabel(period: String): String = when (period) { "WEEKLY" -> "本周"; "MONTHLY" -> "本月"; "CUSTOM" -> "自定义"; else -> "今天" }
 private fun formatMinutes(value: Int?): String = value?.let { "${it / 60}:${(it % 60).toString().padStart(2, '0')}" } ?: "未设置"
-private fun formatLastChecked(epoch: Long?): String = epoch?.let { Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm", Locale.CHINA)) } ?: "尚未检查"
+private fun formatLastChecked(epoch: Long?, zoneId: ZoneId = ZoneId.systemDefault()): String = epoch?.let { Instant.ofEpochMilli(it).atZone(zoneId).format(DateTimeFormatter.ofPattern("M月d日 HH:mm", Locale.CHINA)) } ?: "尚未检查"
 private fun feedbackModeLabel(soundEnabled: Boolean, vibrationEnabled: Boolean): String = when {
     soundEnabled && vibrationEnabled -> "声音 + 振动"
     soundEnabled -> "仅声音"

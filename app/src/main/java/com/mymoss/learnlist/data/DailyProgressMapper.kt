@@ -22,7 +22,7 @@ import java.time.ZoneId
 
 /** Converts persisted records into the input shared by all daily-progress consumers. */
 object DailyProgressMapper {
-    fun from(snapshot: BackupSnapshot): DailyProgressInput = from(
+    fun from(snapshot: BackupSnapshot, zoneId: ZoneId = ZoneId.systemDefault()): DailyProgressInput = from(
         projects = snapshot.projects,
         tasks = snapshot.tasks,
         reviewLogs = snapshot.reviewLogs,
@@ -31,6 +31,7 @@ object DailyProgressMapper {
         pageLogs = snapshot.pageLogs,
         readingAdjustments = snapshot.readingAdjustments,
         todos = snapshot.todos,
+        zoneId = zoneId,
     )
 
     fun from(
@@ -42,6 +43,7 @@ object DailyProgressMapper {
         pageLogs: List<PageLogEntity>,
         readingAdjustments: List<ReadingAdjustmentEntity> = emptyList(),
         todos: List<TodoEntity>,
+        zoneId: ZoneId = ZoneId.systemDefault(),
     ): DailyProgressInput {
         val reviewedDatesByTask = reviewLogs.groupBy(ReviewLogEntity::taskId).mapValues { (_, logs) ->
             logs.mapNotNull { it.reviewedOn.asLocalDate() }.toSet()
@@ -75,7 +77,7 @@ object DailyProgressMapper {
                     initialLearningDate = task.initialLearningDate.asLocalDate(),
                     nextReviewDate = task.nextReviewDate.asLocalDate(),
                     snoozedUntil = task.snoozedUntil.asLocalDate(),
-                    createdOn = task.createdAt.toLocalDate(),
+                    createdOn = task.createdAt.toLocalDate(zoneId),
                     reviewedDates = reviewedDatesByTask[task.id].orEmpty(),
                 )
             },
@@ -116,5 +118,5 @@ object DailyProgressMapper {
         token.trim().toIntOrNull()?.takeIf { it in 1..7 }?.let { runCatching { DayOfWeek.of(it) }.getOrNull() }
     }.toSet()
 
-    private fun Long.toLocalDate(): LocalDate = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
+    private fun Long.toLocalDate(zoneId: ZoneId): LocalDate = Instant.ofEpochMilli(this).atZone(zoneId).toLocalDate()
 }
