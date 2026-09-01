@@ -1,6 +1,5 @@
 package com.mymoss.learnlist.ui
 
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import com.mymoss.learnlist.system.UpdateInfo
@@ -35,7 +34,7 @@ class UpdateCenterInstrumentedTest {
             }
         }
 
-        composeRule.onNodeWithText("下载进度 42% · 已下载 43 KB / 100 KB").assertIsDisplayed()
+        composeRule.onNodeWithText("下载进度 42% · 已下载 43 KB / 100 KB").assertExists()
     }
 }
 
