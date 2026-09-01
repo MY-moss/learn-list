@@ -1319,15 +1319,16 @@ internal fun UpdateCenterCard(updateState: UpdateUiState, onCheck: () -> Unit, o
                         fontSize = 12.sp,
                         modifier = Modifier.weight(1f),
                     )
-                    Text(
-                        buildString {
-                            append(formatBytes(updateState.downloadedBytes))
-                            updateState.totalDownloadBytes?.let { append(" / "); append(formatBytes(it)) }
-                        },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                    )
                 }
+                Text(
+                    buildString {
+                        append("已下载 ")
+                        append(formatBytes(updateState.downloadedBytes))
+                        updateState.totalDownloadBytes?.let { append(" / "); append(formatBytes(it)) }
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("上次检查：${formatLastChecked(updateState.lastCheckedAtEpochMillis)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.weight(1f))
