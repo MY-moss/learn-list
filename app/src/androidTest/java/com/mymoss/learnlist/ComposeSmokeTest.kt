@@ -5,6 +5,7 @@ import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
@@ -33,6 +34,15 @@ class ComposeSmokeTest {
         skipOnboardingIfPresent()
         composeRule.onNodeWithText("今日必做").assertIsDisplayed()
         composeRule.onNodeWithText("设置").assertIsDisplayed()
+    }
+
+    @Test
+    fun todayCanOpenHistoryCalendar() {
+        skipOnboardingIfPresent()
+        composeRule.onNodeWithContentDescription("打开学习日历").performClick()
+        composeRule.onNodeWithText("学习日历").assertIsDisplayed()
+        composeRule.onNodeWithText("点选日期查看当天进度；未来日期不可补记。").assertIsDisplayed()
+        composeRule.onNodeWithText("关闭").performClick()
     }
 
     @Test
