@@ -8,9 +8,12 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.mymoss.learnlist.LearnListApplication
 import com.mymoss.learnlist.MainActivity
@@ -35,8 +38,16 @@ class FocusTimerService : Service() {
     override fun onCreate() {
         super.onCreate()
         ensureNotificationChannel(this)
-        runCatching { startForeground(NOTIFICATION_ID, buildProgressNotification(null, null, 0)) }
-            .onFailure { stopSelf() }
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            buildProgressNotification(null, null, 0),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            } else {
+                0
+            },
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -215,7 +226,7 @@ class FocusTimerService : Service() {
 
         fun stop(context: Context) {
             val intent = Intent(context.applicationContext, FocusTimerService::class.java).setAction(ACTION_STOP)
-            runCatching { ContextCompat.startForegroundService(context.applicationContext, intent) }
+            runCatching { context.applicationContext.startService(intent) }
         }
 
         fun formatRemaining(totalSeconds: Int): String {
