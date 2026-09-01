@@ -2,6 +2,7 @@ package com.mymoss.learnlist
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -14,14 +15,26 @@ class ComposeSmokeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 
+    private fun skipOnboardingIfPresent() {
+        composeRule.waitUntil(3_000) {
+            composeRule.onAllNodesWithText("跳过", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() ||
+                composeRule.onAllNodesWithText("今日必做", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        val skip = composeRule.onAllNodesWithText("跳过", useUnmergedTree = true)
+        if (skip.fetchSemanticsNodes().isNotEmpty()) skip[0].performClick()
+        composeRule.waitForIdle()
+    }
+
     @Test
     fun todayTabIsVisible() {
+        skipOnboardingIfPresent()
         composeRule.onNodeWithText("今日必做").assertIsDisplayed()
         composeRule.onNodeWithText("设置").assertIsDisplayed()
     }
 
     @Test
     fun settingsShowsUpdateCenterAndManualCheckButton() {
+        skipOnboardingIfPresent()
         composeRule.onNodeWithText("设置").performClick()
         composeRule.onNodeWithText("更新中心").assertIsDisplayed()
         composeRule.onNodeWithText("检查更新").assertIsDisplayed()
