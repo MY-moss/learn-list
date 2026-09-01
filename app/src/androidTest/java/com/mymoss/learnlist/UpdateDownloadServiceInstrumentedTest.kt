@@ -29,8 +29,19 @@ class UpdateDownloadServiceInstrumentedTest {
                 channel = notificationManager.getNotificationChannel(UpdateDownloadService.CHANNEL_ID)
             }
             assertNotNull(channel)
+            // Channel creation happens immediately before the service promotes
+            // itself. Do not stop the service in that small window on slower
+            // API 26 emulators.
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            SystemClock.sleep(750L)
         } finally {
             context.stopService(Intent(context, UpdateDownloadService::class.java))
+            // The channel is created before the foreground promotion call. Give
+            // the service lifecycle a chance to finish before the next test
+            // starts, otherwise Android may report a delayed FGS promotion
+            // failure in an unrelated test.
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            SystemClock.sleep(250L)
         }
     }
 }

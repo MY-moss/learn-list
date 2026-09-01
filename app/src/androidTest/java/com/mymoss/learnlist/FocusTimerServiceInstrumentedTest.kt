@@ -34,6 +34,11 @@ class FocusTimerServiceInstrumentedTest {
             assertNotNull(
                 channel,
             )
+            // Channel creation happens immediately before the service promotes
+            // itself. Do not stop the service in that small window on slower
+            // API 26 emulators.
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            SystemClock.sleep(750L)
         } finally {
             context.stopService(Intent(context, FocusTimerService::class.java))
             // Give the main process a chance to finish onDestroy before the next

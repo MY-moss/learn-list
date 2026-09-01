@@ -2,6 +2,7 @@ package com.mymoss.learnlist.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -143,6 +145,7 @@ import com.mymoss.learnlist.data.local.ReadingAdjustmentEntity
 import com.mymoss.learnlist.data.local.ReadingTargetEntity
 import com.mymoss.learnlist.data.local.TodoEntity
 import com.mymoss.learnlist.domain.DailyProgressCalculator
+import com.mymoss.learnlist.domain.DailyProgressSummary
 import com.mymoss.learnlist.domain.GoalActivity
 import com.mymoss.learnlist.domain.GoalDefinition
 import com.mymoss.learnlist.domain.GoalMetric
@@ -160,6 +163,7 @@ import java.time.DayOfWeek
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
@@ -807,6 +811,17 @@ private fun TodayScreen(
             (todo.projectId == null || todo.projectId in activeProjectIds) &&
             todo.isDueOn(today)
     }
+    val dailyProgressInput = DailyProgressMapper.from(
+        projects = state.projects + state.archivedProjects,
+        tasks = state.tasks,
+        reviewLogs = state.reviewLogs,
+        readingPlans = state.readingPlans,
+        readingTargets = state.readingTargets,
+        pageLogs = state.pageLogs,
+        readingAdjustments = state.readingAdjustments,
+        todos = state.todos,
+    )
+    val dailyProgressCalculator = remember { DailyProgressCalculator() }
     var missedTodoPrompt by remember { mutableStateOf<TodoEntity?>(null) }
     val promptedMissedTodoIds = remember { mutableSetOf<String>() }
     LaunchedEffect(state.todos, today) {
@@ -817,24 +832,13 @@ private fun TodayScreen(
             }
         }
     }
-    val progress = DailyProgressCalculator().calculate(
-        DailyProgressMapper.from(
-            projects = state.projects + state.archivedProjects,
-            tasks = state.tasks,
-            reviewLogs = state.reviewLogs,
-            readingPlans = state.readingPlans,
-            readingTargets = state.readingTargets,
-            pageLogs = state.pageLogs,
-            readingAdjustments = state.readingAdjustments,
-            todos = state.todos,
-        ),
-        today,
-    )
+    val progress = dailyProgressCalculator.calculate(dailyProgressInput, today)
     val streak = calculateStreak(state, today, state.restDays)
     val readingPages = readingPagesOn(state.pageLogs, state.readingAdjustments, date = today)
     val todoDone = dueTodos.count { it.isCompletedOn(today) }
     val focusMinutes = state.focusSessions.filter { it.activityDate() == today }.sumOf { it.actualSeconds / 60 }
     val percent = progress.percent
+    var showHistoryCalendar by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 28.dp),
@@ -851,6 +855,9 @@ private fun TodayScreen(
                 Column(Modifier.weight(1f)) {
                     Text(today.format(DateTimeFormatter.ofPattern("M月d日 · E", Locale.CHINA)), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                     Text(if (today == LocalDate.now()) "今天" else "历史回看", style = MaterialTheme.typography.headlineSmall)
+                }
+                IconButton(onClick = { showHistoryCalendar = true }, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Default.CalendarToday, "打开学习日历")
                 }
                 IconButton(onClick = { if (today.isBefore(LocalDate.now())) onDateChange(today.plusDays(1)) }, enabled = today.isBefore(LocalDate.now()), modifier = Modifier.size(34.dp)) { Icon(Icons.Default.ChevronRight, "查看后一天") }
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.tertiaryContainer) {
@@ -935,6 +942,17 @@ private fun TodayScreen(
             TodoCard(todo, today, onToggle = { viewModel.toggleTodo(todo.id, today, todo.isCompletedOn(today)) })
         }
     }
+    if (showHistoryCalendar) {
+        HistoryCalendarDialog(
+            selectedDate = today,
+            progressFor = { date -> dailyProgressCalculator.calculate(dailyProgressInput, date) },
+            onDismiss = { showHistoryCalendar = false },
+            onDateSelected = { date ->
+                onDateChange(date)
+                showHistoryCalendar = false
+            },
+        )
+    }
     missedTodoPrompt?.let { todo ->
         val missedDate = todo.previousMissedOccurrence(today)
         AlertDialog(
@@ -954,6 +972,106 @@ private fun TodayScreen(
             },
         )
     }
+}
+
+@Composable
+private fun HistoryCalendarDialog(
+    selectedDate: LocalDate,
+    progressFor: (LocalDate) -> DailyProgressSummary,
+    onDismiss: () -> Unit,
+    onDateSelected: (LocalDate) -> Unit,
+) {
+    var month by rememberSaveable(selectedDate) { mutableStateOf(YearMonth.from(selectedDate)) }
+    val currentMonth = YearMonth.from(LocalDate.now())
+    val today = LocalDate.now()
+    val leadingEmptyDays = month.atDay(1).dayOfWeek.value - 1
+    val rowCount = (leadingEmptyDays + month.lengthOfMonth() + 6) / 7
+    val weekdays = listOf("一", "二", "三", "四", "五", "六", "日")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.large,
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("学习日历", style = MaterialTheme.typography.titleLarge)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { month = month.minusMonths(1) }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.ChevronLeft, "上一个月")
+                    }
+                    Text("${month.year}年${month.monthValue}月", Modifier.weight(1f), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { month = month.plusMonths(1) }, enabled = month.isBefore(currentMonth), modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.ChevronRight, "下一个月")
+                    }
+                }
+                Text("点选日期查看当天进度；未来日期不可补记。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Row(Modifier.fillMaxWidth()) {
+                    weekdays.forEach { weekday ->
+                        Text(weekday, Modifier.weight(1f), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    }
+                }
+                repeat(rowCount) { row ->
+                    Row(Modifier.fillMaxWidth()) {
+                        repeat(7) { column ->
+                            val dayOfMonth = row * 7 + column - leadingEmptyDays + 1
+                            if (dayOfMonth !in 1..month.lengthOfMonth()) {
+                                Spacer(Modifier.weight(1f).height(56.dp))
+                            } else {
+                                val date = month.atDay(dayOfMonth)
+                                val isFuture = date.isAfter(today)
+                                val progress = if (isFuture) null else progressFor(date)
+                                val isSelected = date == selectedDate
+                                val background = when {
+                                    isSelected -> MaterialTheme.colorScheme.primaryContainer
+                                    progress?.percent == 100 -> MaterialTheme.colorScheme.secondaryContainer
+                                    progress?.percent != null -> MaterialTheme.colorScheme.surfaceVariant
+                                    else -> Color.Transparent
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(56.dp)
+                                        .padding(2.dp)
+                                        .clip(MaterialTheme.shapes.small)
+                                        .background(background)
+                                        .clickable(enabled = !isFuture) { onDateSelected(date) },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            dayOfMonth.toString(),
+                                            color = if (isFuture) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        )
+                                        Text(
+                                            progress?.percent?.let { "$it%" } ?: if (isFuture) "·" else "—",
+                                            color = when {
+                                                progress?.percent == 100 -> MaterialTheme.colorScheme.secondary
+                                                progress?.percent != null -> MaterialTheme.colorScheme.primary
+                                                else -> MaterialTheme.colorScheme.outline
+                                            },
+                                            fontSize = 9.sp,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onDateSelected(today) }) { Text("回到今天") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
 }
 
 @Composable
