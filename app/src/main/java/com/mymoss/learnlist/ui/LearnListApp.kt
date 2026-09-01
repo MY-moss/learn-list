@@ -458,7 +458,7 @@ fun LearnListApp(
                 )
             }
             composable(AppTab.STATS.name) {
-                StatsScreen(state, padding, currentDay, { showGoalDialog = true }, { showCountdownDialog = true }, viewModel::completeCountdown, { editGoal = it }, viewModel::deleteGoal, { editCountdown = it }, viewModel::deleteCountdown, appClock.zone)
+                StatsScreen(state, padding, currentDay, { showGoalDialog = true }, { showCountdownDialog = true }, viewModel::completeCountdown, { editGoal = it }, viewModel::deleteGoal, { editCountdown = it }, viewModel::deleteCountdown, appClock.zone, appClock)
             }
             composable(AppTab.SETTINGS.name) {
                 SettingsScreen(
@@ -1539,6 +1539,7 @@ private fun StatsScreen(
     onEditCountdown: (CountdownEntity) -> Unit,
     onDeleteCountdown: (String) -> Unit,
     zoneId: ZoneId,
+    clock: Clock,
 ) {
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
@@ -1573,7 +1574,7 @@ private fun StatsScreen(
         items(state.goals, key = { it.id }) { goal -> GoalCard(goal, state, today, zoneId, { onEditGoal(goal) }, { onDeleteGoal(goal.id) }) }
         item { SectionHeader("倒计时", "考试、截止日或下一次重要事件", trailing = { TextButton(onClick = onNewCountdown) { Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp)); Text("新增") } }) }
         if (state.countdowns.isEmpty()) item { EmptyCard("为重要事件留一个提前量。", Icons.Default.CalendarToday) }
-        items(state.countdowns, key = { it.id }) { countdown -> CountdownCard(countdown, { onCompleteCountdown(countdown.id) }, { onEditCountdown(countdown) }, { onDeleteCountdown(countdown.id) }) }
+        items(state.countdowns, key = { it.id }) { countdown -> CountdownCard(countdown, { onCompleteCountdown(countdown.id) }, { onEditCountdown(countdown) }, { onDeleteCountdown(countdown.id) }, clock) }
     }
 }
 
@@ -2197,15 +2198,15 @@ private fun GoalCard(goal: GoalEntity, state: LearnListUiState, today: LocalDate
 }
 
 @Composable
-private fun CountdownCard(countdown: CountdownEntity, onComplete: () -> Unit, onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
-    var now by remember(countdown.id, countdown.isCompleted, countdown.eventAtEpochMillis) { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(countdown.id, countdown.isCompleted, countdown.eventAtEpochMillis) {
+private fun CountdownCard(countdown: CountdownEntity, onComplete: () -> Unit, onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null, clock: Clock) {
+    var now by remember(countdown.id, countdown.isCompleted, countdown.eventAtEpochMillis, clock) { mutableLongStateOf(clock.millis()) }
+    LaunchedEffect(countdown.id, countdown.isCompleted, countdown.eventAtEpochMillis, clock) {
         while (!countdown.isCompleted) {
-            now = System.currentTimeMillis()
+            now = clock.millis()
             if (now >= countdown.eventAtEpochMillis) break
             delay(1000)
         }
-        now = System.currentTimeMillis()
+        now = clock.millis()
     }
     val duration = Duration.ofMillis(countdown.eventAtEpochMillis - now)
     val text = when { countdown.isCompleted -> "已完成"; duration.isNegative -> "已到期"; else -> "${duration.toDays()}天 ${duration.toHours() % 24}小时 ${duration.toMinutes() % 60}分" }
