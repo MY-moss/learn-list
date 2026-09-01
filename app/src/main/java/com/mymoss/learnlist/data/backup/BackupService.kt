@@ -4,6 +4,7 @@ import android.util.Base64
 import com.mymoss.learnlist.data.BackupSnapshot
 import com.mymoss.learnlist.data.LearnListRepository
 import com.mymoss.learnlist.data.AppSettings
+import com.mymoss.learnlist.data.LegacySummaryReminderSettings
 import com.mymoss.learnlist.data.SettingsRepository
 import com.mymoss.learnlist.data.local.CountdownEntity
 import com.mymoss.learnlist.data.local.FocusSessionEntity
@@ -64,6 +65,7 @@ class BackupService(
         if (encrypted && password.length < MIN_PASSWORD_LENGTH) {
             throw BackupException("加密备份密码至少需要 8 位")
         }
+        migrateLegacySummaryReminder()
         val settings = settingsRepository?.settings?.first()
         val plain = snapshotToJson(repository.snapshot(), settings, includeAudio = encrypted).toString().toByteArray(StandardCharsets.UTF_8)
         if (!encrypted) return@withContext plain
@@ -129,19 +131,15 @@ class BackupService(
         parsed.settings?.let { imported ->
             settingsRepository?.update { current ->
                 current.copy(
-                    reviewLimit = imported.reviewLimit,
-                    summaryReminderEnabled = imported.summaryReminderEnabled,
-                    summaryReminderMinutes = imported.summaryReminderMinutes,
-                    quietStartMinutes = imported.quietStartMinutes,
-                    quietEndMinutes = imported.quietEndMinutes,
-                    restDaysCsv = imported.restDaysCsv,
-                    soundEnabled = imported.soundEnabled,
-                    vibrationEnabled = imported.vibrationEnabled,
-                    focusFeedbackMode = imported.focusFeedbackMode,
-                    reminderFeedbackMode = imported.reminderFeedbackMode,
-                    countdownFeedbackMode = imported.countdownFeedbackMode,
-                    focusAutoStartBreaks = imported.focusAutoStartBreaks,
-                    pendingUpdateVersionName = imported.pendingUpdateVersionName,
+                    reviewLimit = imported.settings.reviewLimit,
+                    restDaysCsv = imported.settings.restDaysCsv,
+                    soundEnabled = imported.settings.soundEnabled,
+                    vibrationEnabled = imported.settings.vibrationEnabled,
+                    focusFeedbackMode = imported.settings.focusFeedbackMode,
+                    reminderFeedbackMode = imported.settings.reminderFeedbackMode,
+                    countdownFeedbackMode = imported.settings.countdownFeedbackMode,
+                    focusAutoStartBreaks = imported.settings.focusAutoStartBreaks,
+                    pendingUpdateVersionName = imported.settings.pendingUpdateVersionName,
                     feedbackAudioPath = when {
                         restoredAudio != null -> restoredAudio.path
                         mode == BackupImportMode.REPLACE -> null
@@ -155,6 +153,7 @@ class BackupService(
                 )
             }
         }
+        restoreLegacySummaryReminder(parsed.settings?.legacySummaryReminder)
         if (mode == BackupImportMode.REPLACE && restoredAudio?.path != previousAudioPath) deleteOwnedAudio(previousAudioPath)
         parsed.preview.copy(encrypted = encrypted)
     }
@@ -244,9 +243,10 @@ class BackupService(
                 reminders = array("reminders").objects(::parseReminder),
         )
         validateSnapshot(snapshot)
+        val parsedSettings = parseSettings(root.optJSONObject("settings"))
         return ParsedBackup(
             snapshot = snapshot,
-            settings = parseSettings(root.optJSONObject("settings")),
+            settings = parsedSettings,
             audio = parseFeedbackAudio(root.optJSONObject("feedbackAudio")),
             preview = preview,
         )
@@ -371,9 +371,14 @@ class BackupService(
 
     private data class ParsedBackup(
         val snapshot: BackupSnapshot,
-        val settings: AppSettings?,
+        val settings: ParsedSettings?,
         val audio: BackupAudio?,
         val preview: BackupPreview,
+    )
+
+    private data class ParsedSettings(
+        val settings: AppSettings,
+        val legacySummaryReminder: LegacySummaryReminderSettings?,
     )
 
     private data class BackupAudio(val displayName: String, val bytes: ByteArray)
@@ -465,10 +470,6 @@ class BackupService(
 
     private fun settingsJson(item: AppSettings) = JSONObject().apply {
         put("reviewLimit", item.reviewLimit)
-        put("summaryReminderEnabled", item.summaryReminderEnabled)
-        put("summaryReminderMinutes", item.summaryReminderMinutes)
-        put("quietStartMinutes", item.quietStartMinutes)
-        put("quietEndMinutes", item.quietEndMinutes)
         put("restDaysCsv", item.restDaysCsv)
         putNullable("dismissedUpdateVersionName", item.dismissedUpdateVersionName)
         put("soundEnabled", item.soundEnabled)
@@ -561,28 +562,60 @@ class BackupService(
         repeatDays = o.optString("repeatDays", "1,2,3,4,5,6,7"), enabled = o.optBoolean("enabled", true), quietStartMinutes = o.nullableInt("quietStartMinutes"), quietEndMinutes = o.nullableInt("quietEndMinutes"), createdAt = o.optLong("createdAt"), updatedAt = o.optLong("updatedAt"),
     )
 
-    private fun parseSettings(o: JSONObject?): AppSettings? {
+    private fun parseSettings(o: JSONObject?): ParsedSettings? {
         if (o == null) return null
         val restDays = o.optString("restDaysCsv", "").split(',')
             .mapNotNull { it.trim().toIntOrNull()?.takeIf { day -> day in 1..7 } }
             .distinct()
             .sorted()
             .joinToString(",")
-        return AppSettings(
-            reviewLimit = o.optInt("reviewLimit", 20).coerceIn(1, 1000),
-            summaryReminderEnabled = o.optBoolean("summaryReminderEnabled", true),
-            summaryReminderMinutes = o.optInt("summaryReminderMinutes", 20 * 60).coerceIn(0, 1439),
-            quietStartMinutes = o.optInt("quietStartMinutes", 22 * 60).coerceIn(0, 1439),
-            quietEndMinutes = o.optInt("quietEndMinutes", 7 * 60).coerceIn(0, 1439),
-            restDaysCsv = restDays,
-            dismissedUpdateVersionName = o.nullableString("dismissedUpdateVersionName"),
-            soundEnabled = o.optBoolean("soundEnabled", true),
-            vibrationEnabled = o.optBoolean("vibrationEnabled", true),
-            focusFeedbackMode = o.optString("focusFeedbackMode", "GLOBAL"),
-            reminderFeedbackMode = o.optString("reminderFeedbackMode", "GLOBAL"),
-            countdownFeedbackMode = o.optString("countdownFeedbackMode", "GLOBAL"),
-            focusAutoStartBreaks = o.optBoolean("focusAutoStartBreaks", false),
-            pendingUpdateVersionName = o.nullableString("pendingUpdateVersionName"),
+        return ParsedSettings(
+            settings = AppSettings(
+                reviewLimit = o.optInt("reviewLimit", 20).coerceIn(1, 1000),
+                restDaysCsv = restDays,
+                dismissedUpdateVersionName = o.nullableString("dismissedUpdateVersionName"),
+                soundEnabled = o.optBoolean("soundEnabled", true),
+                vibrationEnabled = o.optBoolean("vibrationEnabled", true),
+                focusFeedbackMode = o.optString("focusFeedbackMode", "GLOBAL"),
+                reminderFeedbackMode = o.optString("reminderFeedbackMode", "GLOBAL"),
+                countdownFeedbackMode = o.optString("countdownFeedbackMode", "GLOBAL"),
+                focusAutoStartBreaks = o.optBoolean("focusAutoStartBreaks", false),
+                pendingUpdateVersionName = o.nullableString("pendingUpdateVersionName"),
+            ),
+            legacySummaryReminder = LegacySummaryReminderSettings.from(
+                enabled = o.optionalBoolean("summaryReminderEnabled"),
+                timeMinutes = o.optionalInt("summaryReminderMinutes"),
+                quietStartMinutes = o.optionalInt("quietStartMinutes"),
+                quietEndMinutes = o.optionalInt("quietEndMinutes"),
+            ),
+        )
+    }
+
+    private suspend fun migrateLegacySummaryReminder() {
+        settingsRepository?.migrateLegacySummaryReminderSettings { legacy ->
+            if (repository.snapshot().reminders.none { it.kind == "SUMMARY" }) {
+                repository.addReminder(
+                    projectId = null,
+                    kind = "SUMMARY",
+                    timeMinutes = legacy.timeMinutes,
+                    quietStartMinutes = legacy.quietStartMinutes,
+                    quietEndMinutes = legacy.quietEndMinutes,
+                    enabled = legacy.enabled,
+                )
+            }
+        }
+    }
+
+    private suspend fun restoreLegacySummaryReminder(legacy: LegacySummaryReminderSettings?) {
+        if (legacy == null) return
+        if (repository.snapshot().reminders.any { it.kind == "SUMMARY" }) return
+        repository.addReminder(
+            projectId = null,
+            kind = "SUMMARY",
+            timeMinutes = legacy.timeMinutes,
+            quietStartMinutes = legacy.quietStartMinutes,
+            quietEndMinutes = legacy.quietEndMinutes,
+            enabled = legacy.enabled,
         )
     }
 
@@ -646,6 +679,8 @@ class BackupService(
     }
     private fun JSONObject.requiredString(key: String): String = optString(key).takeIf(String::isNotBlank) ?: throw BackupException("备份字段缺失：$key")
     private fun JSONObject.nullableString(key: String): String? = if (isNull(key)) null else optString(key).takeIf(String::isNotBlank)
+    private fun JSONObject.optionalBoolean(key: String): Boolean? = if (has(key) && !isNull(key)) optBoolean(key) else null
+    private fun JSONObject.optionalInt(key: String): Int? = if (has(key) && !isNull(key)) optInt(key) else null
     private fun JSONObject.nullableInt(key: String): Int? = if (isNull(key)) null else optInt(key)
     private fun JSONObject.nullableLong(key: String): Long? = if (isNull(key)) null else optLong(key)
     private fun <T> JSONArray.objects(parser: (JSONObject) -> T): List<T> = (0 until length()).map { parser(getJSONObject(it)) }

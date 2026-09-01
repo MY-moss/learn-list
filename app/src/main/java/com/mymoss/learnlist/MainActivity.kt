@@ -197,6 +197,24 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                settingsRepository.migrateLegacySummaryReminderSettings { legacy ->
+                    if (app.repository.snapshot().reminders.none { it.kind == "SUMMARY" }) {
+                        app.repository.addReminder(
+                            projectId = null,
+                            kind = "SUMMARY",
+                            timeMinutes = legacy.timeMinutes,
+                            quietStartMinutes = legacy.quietStartMinutes,
+                            quietEndMinutes = legacy.quietEndMinutes,
+                            enabled = legacy.enabled,
+                        )
+                    }
+                }
+            }.onFailure { error ->
+                android.util.Log.w("LearnList", "无法迁移旧版每日进度提醒设置", error)
+            }
+        }
         val reminderScheduler = ReminderScheduler(this, app.repository, appClock)
         lifecycleScope.launch {
             app.repository
