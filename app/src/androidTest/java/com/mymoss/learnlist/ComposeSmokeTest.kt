@@ -50,6 +50,8 @@ class ComposeSmokeTest {
         composeRule.onNodeWithText("声音提示").assertIsDisplayed()
         settingsScroll.performScrollToNode(hasText("振动提示"))
         composeRule.onNodeWithText("振动提示").assertIsDisplayed()
+        settingsScroll.performScrollToNode(hasText("导出脱敏诊断"))
+        composeRule.onNodeWithText("导出脱敏诊断").assertIsDisplayed()
     }
 }
 

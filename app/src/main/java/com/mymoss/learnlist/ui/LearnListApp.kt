@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -72,6 +73,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -204,6 +206,7 @@ fun LearnListApp(
     viewModel: LearnListViewModel,
     onExportBackup: (Boolean, String) -> Unit = { _, _ -> },
     onImportBackup: (String, BackupImportMode) -> Unit = { _, _ -> },
+    onExportDiagnostics: () -> Unit = {},
     onCheckForUpdate: () -> Unit = {},
     updateState: UpdateUiState = UpdateUiState(),
     onDownloadUpdate: () -> Unit = {},
@@ -441,6 +444,7 @@ fun LearnListApp(
                     projects = state.projects,
                     onBackup = { showBackupDialog = true },
                     onImport = { showImportDialog = true },
+                    onExportDiagnostics = onExportDiagnostics,
                     onCheckForUpdate = onCheckForUpdate,
                     updateState = updateState,
                     onDownloadUpdate = onDownloadUpdate,
@@ -1405,6 +1409,7 @@ private fun SettingsScreen(
     projects: List<ProjectEntity>,
     onBackup: () -> Unit,
     onImport: () -> Unit,
+    onExportDiagnostics: () -> Unit,
     onCheckForUpdate: () -> Unit,
     updateState: UpdateUiState,
     onDownloadUpdate: () -> Unit,
@@ -1455,10 +1460,18 @@ private fun SettingsScreen(
     var reminderToDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
     var permanentDeleteTitle by remember { mutableStateOf<String?>(null) }
     var permanentDeleteAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var permanentDeleteAcknowledged by rememberSaveable { mutableStateOf(false) }
 
     fun requestPermanentDelete(title: String, action: () -> Unit) {
         permanentDeleteTitle = title
         permanentDeleteAction = action
+        permanentDeleteAcknowledged = false
+    }
+
+    fun dismissPermanentDelete() {
+        permanentDeleteAction = null
+        permanentDeleteTitle = null
+        permanentDeleteAcknowledged = false
     }
 
     LazyColumn(
@@ -1631,6 +1644,12 @@ private fun SettingsScreen(
                         Button(onClick = onBackup, modifier = Modifier.weight(1f)) { Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("导出") }
                         OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) { Icon(Icons.Default.FileUpload, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(4.dp)); Text("导入") }
                     }
+                    OutlinedButton(onClick = onExportDiagnostics, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.BugReport, null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("导出脱敏诊断")
+                    }
+                    Text("诊断文件只包含版本、设备环境、记录数量和开关状态，不包含标题、笔记、来源、ID、路径或音频。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 }
             }
         }
@@ -1679,19 +1698,26 @@ private fun SettingsScreen(
     }
     permanentDeleteAction?.let { action ->
         AlertDialog(
-            onDismissRequest = { permanentDeleteAction = null; permanentDeleteTitle = null },
+            onDismissRequest = ::dismissPermanentDelete,
             shape = MaterialTheme.shapes.large,
             containerColor = MaterialTheme.colorScheme.surface,
             title = { Text("永久删除？") },
-            text = { Text("${permanentDeleteTitle.orEmpty()} 将连同相关历史记录一起删除，且无法恢复。") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${permanentDeleteTitle.orEmpty()} 将连同相关历史记录一起删除，且无法恢复。")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = permanentDeleteAcknowledged, onCheckedChange = { permanentDeleteAcknowledged = it })
+                        Text("我知道永久删除后无法恢复", fontSize = 13.sp)
+                    }
+                }
+            },
             confirmButton = {
                 Button(onClick = {
                     action()
-                    permanentDeleteAction = null
-                    permanentDeleteTitle = null
-                }) { Text("永久删除") }
+                    dismissPermanentDelete()
+                }, enabled = permanentDeleteAcknowledged) { Text("永久删除") }
             },
-            dismissButton = { TextButton(onClick = { permanentDeleteAction = null; permanentDeleteTitle = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = ::dismissPermanentDelete) { Text("取消") } },
         )
     }
     if (showReminderDialog) {
