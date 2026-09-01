@@ -16,7 +16,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.remember
 import com.mymoss.learnlist.data.SettingsRepository
 import com.mymoss.learnlist.data.DiagnosticsService
 import com.mymoss.learnlist.data.backup.BackupImportMode
@@ -49,6 +48,7 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val app: LearnListApplication get() = application as LearnListApplication
+    private val appClock: Clock = Clock.systemDefaultZone()
     private val backupService by lazy {
         BackupService(
             app.repository,
@@ -118,7 +118,6 @@ class MainActivity : ComponentActivity() {
         val feedbackContext = applicationContext
         setContent {
             LearnListTheme {
-                val appClock = remember { Clock.systemDefaultZone() }
                 val pending by pendingBackupImport.collectAsState()
                 val appSettings by settingsRepository.settings.collectAsState(initial = null)
                 val viewModel: com.mymoss.learnlist.ui.LearnListViewModel = viewModel(
@@ -197,7 +196,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        val reminderScheduler = ReminderScheduler(this, app.repository)
+        val reminderScheduler = ReminderScheduler(this, app.repository, appClock)
         lifecycleScope.launch {
             app.repository.observeReminders().combine(app.repository.observeCountdowns()) { _, _ -> Unit }.collectLatest {
                 runCatching { reminderScheduler.rescheduleAll() }
@@ -235,7 +234,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         lifecycleScope.launch {
             checkInstallResult()
-            runCatching { ReminderScheduler(this@MainActivity, app.repository).rescheduleAll() }
+            runCatching { ReminderScheduler(this@MainActivity, app.repository, appClock).rescheduleAll() }
         }
         if (automaticUpdateJob?.isActive != true) {
             automaticUpdateJob = lifecycleScope.launch { checkAutomatically() }

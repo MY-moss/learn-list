@@ -1,6 +1,7 @@
 package com.mymoss.learnlist
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -62,6 +63,16 @@ class ComposeSmokeTest {
         composeRule.onNodeWithText("振动提示").assertIsDisplayed()
         settingsScroll.performScrollToNode(hasText("导出脱敏诊断"))
         composeRule.onNodeWithText("导出脱敏诊断").assertIsDisplayed()
+    }
+
+    @Test
+    fun settingsSectionsCanCollapseAndExpand() {
+        skipOnboardingIfPresent()
+        composeRule.onNodeWithText("设置").performClick()
+        composeRule.onNodeWithText("更新中心").performClick()
+        composeRule.onAllNodesWithText("检查更新").assertCountEquals(0)
+        composeRule.onNodeWithText("更新中心").performClick()
+        composeRule.onNodeWithText("检查更新").assertIsDisplayed()
     }
 }
 
