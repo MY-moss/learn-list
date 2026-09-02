@@ -2,10 +2,12 @@ package com.mymoss.learnlist
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -81,6 +83,8 @@ class ComposeSmokeTest {
         val todoNodes = composeRule.onAllNodesWithText("待办")
         todoNodes[todoNodes.fetchSemanticsNodes().lastIndex].performClick()
         composeRule.onNodeWithText("待完成").assertIsDisplayed()
+        composeRule.onNodeWithText("待完成").assertHasClickAction()
+        composeRule.onAllNodesWithContentDescription("收起待完成").assertCountEquals(0)
         composeRule.onNodeWithText("没有到期待办，点击右下角添加。").assertIsDisplayed()
         composeRule.onNodeWithText("待完成").performClick()
         composeRule.onAllNodesWithText("没有到期待办，点击右下角添加。").assertCountEquals(0)
@@ -103,4 +107,5 @@ class ComposeSmokeTest {
         composeRule.onNodeWithText("创建第一个学习项目：书籍、课程或技能").assertIsDisplayed()
     }
 }
+
 
