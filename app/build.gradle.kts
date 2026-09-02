@@ -16,8 +16,8 @@ android {
         applicationId = "com.mymoss.learnlist"
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.3.5"
+        versionCode = 19
+        versionName = "0.3.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -135,5 +135,6 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
 
 
