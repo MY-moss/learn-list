@@ -1217,11 +1217,15 @@ private fun LearnScreen(
     onDeleteReadingPlan: (String) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var projectsExpanded by rememberSaveable { mutableStateOf(true) }
     val normalizedQuery = query.trim().lowercase()
     val visibleProjects = state.projects.filter { project ->
         normalizedQuery.isBlank() || listOf(project.title, project.type, project.description, project.tagCsv).any { it.lowercase().contains(normalizedQuery) } ||
             state.tasks.any { it.projectId == project.id && it.title.lowercase().contains(normalizedQuery) } ||
             state.readingPlans.any { it.projectId == project.id && it.title.lowercase().contains(normalizedQuery) }
+    }
+    LaunchedEffect(normalizedQuery) {
+        if (normalizedQuery.isNotBlank()) projectsExpanded = true
     }
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
@@ -1252,13 +1256,14 @@ private fun LearnScreen(
             )
         }
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${visibleProjects.size} 个项目", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                Text("逾期内容不会隐藏", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-            }
+            CollapsibleSectionHeader(
+                "学习项目",
+                "${visibleProjects.size} 个项目 · 逾期内容不会隐藏",
+                projectsExpanded,
+            ) { projectsExpanded = it }
         }
-        if (visibleProjects.isEmpty()) item { EmptyCard(if (state.projects.isEmpty()) "创建第一个学习项目：书籍、课程或技能" else "没有匹配的学习项目", Icons.Default.Search) }
-        items(visibleProjects, key = { it.id }) { project ->
+        if (projectsExpanded && visibleProjects.isEmpty()) item { EmptyCard(if (state.projects.isEmpty()) "创建第一个学习项目：书籍、课程或技能" else "没有匹配的学习项目", Icons.Default.Search) }
+        items(if (projectsExpanded) visibleProjects else emptyList(), key = { it.id }) { project ->
             ProjectCard(
                 project = project,
                 tasks = state.tasks.filter { it.projectId == project.id },
@@ -1425,6 +1430,16 @@ private fun TodoScreen(
             (query.isBlank() || todo.title.contains(query.trim(), true) || todo.notes.contains(query.trim(), true))
     }
     val done = todos.count { it.isCompletedOn(today) }
+    val pendingTodos = todos.filterNot { it.isCompletedOn(today) }
+    val completedTodos = todos.filter { it.isCompletedOn(today) }
+    var pendingExpanded by rememberSaveable { mutableStateOf(true) }
+    var completedExpanded by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(query.trim()) {
+        if (query.trim().isNotBlank()) {
+            pendingExpanded = true
+            completedExpanded = true
+        }
+    }
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1453,9 +1468,44 @@ private fun TodoScreen(
                 shape = MaterialTheme.shapes.medium,
             )
         }
-        item { Text("${todos.size} 项安排", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
-        if (todos.isEmpty()) item { EmptyCard("没有到期待办，点击右下角添加。", Icons.Default.CheckCircleOutline) }
-        items(todos, key = { it.id }) { todo -> TodoCard(todo, today, { onToggle(todo.id, today, todo.isCompletedOn(today)) }, { onEdit(todo) }, { onDelete(todo.id) }) }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${todos.size} 项安排", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text("待完成 $pendingTodos.size · 已完成 $done", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            }
+        }
+        item { CollapsibleSectionHeader("待完成", if (pendingTodos.isEmpty()) "今天先留一点空间" else "优先处理这 $pendingTodos.size 项", pendingExpanded) { pendingExpanded = it } }
+        if (pendingExpanded) {
+            if (pendingTodos.isEmpty()) item { EmptyCard(if (todos.isEmpty()) "没有到期待办，点击右下角添加。" else "今天的待办都完成了。", Icons.Default.CheckCircleOutline) }
+            items(pendingTodos, key = { it.id }) { todo ->
+                TodoCard(
+                    todo,
+                    today,
+                    onToggle = {
+                        onToggle(todo.id, today, todo.isCompletedOn(today))
+                        completedExpanded = true
+                    },
+                    onEdit = { onEdit(todo) },
+                    onDelete = { onDelete(todo.id) },
+                )
+            }
+        }
+        item { CollapsibleSectionHeader("已完成", if (completedTodos.isEmpty()) "完成后会收进这里" else "今天完成了 $done 项", completedExpanded) { completedExpanded = it } }
+        if (completedExpanded) {
+            if (completedTodos.isEmpty()) item { EmptyCard("完成的待办会显示在这里。", Icons.Default.CheckCircleOutline) }
+            items(completedTodos, key = { it.id }) { todo ->
+                TodoCard(
+                    todo,
+                    today,
+                    onToggle = {
+                        onToggle(todo.id, today, todo.isCompletedOn(today))
+                        pendingExpanded = true
+                    },
+                    onEdit = { onEdit(todo) },
+                    onDelete = { onDelete(todo.id) },
+                )
+            }
+        }
         item {
             Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {

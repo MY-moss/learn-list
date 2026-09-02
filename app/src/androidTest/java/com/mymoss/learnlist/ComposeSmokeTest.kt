@@ -74,5 +74,33 @@ class ComposeSmokeTest {
         composeRule.onNodeWithText("更新中心").performClick()
         composeRule.onNodeWithText("检查更新").assertIsDisplayed()
     }
+
+    @Test
+    fun todoSectionsCanCollapseAndExpand() {
+        skipOnboardingIfPresent()
+        val todoNodes = composeRule.onAllNodesWithText("待办")
+        todoNodes[todoNodes.fetchSemanticsNodes().lastIndex].performClick()
+        composeRule.onNodeWithText("待完成").assertIsDisplayed()
+        composeRule.onNodeWithText("没有到期待办，点击右下角添加。").assertIsDisplayed()
+        composeRule.onNodeWithText("待完成").performClick()
+        composeRule.onAllNodesWithText("没有到期待办，点击右下角添加。").assertCountEquals(0)
+        composeRule.onNodeWithText("待完成").performClick()
+        composeRule.onNodeWithText("没有到期待办，点击右下角添加。").assertIsDisplayed()
+        composeRule.onNodeWithText("已完成").performClick()
+        composeRule.onNodeWithText("完成的待办会显示在这里。").assertIsDisplayed()
+    }
+
+    @Test
+    fun learningProjectsCanCollapseAndExpand() {
+        skipOnboardingIfPresent()
+        val learnNodes = composeRule.onAllNodesWithText("学习")
+        learnNodes[learnNodes.fetchSemanticsNodes().lastIndex].performClick()
+        composeRule.onNodeWithText("学习项目").assertIsDisplayed()
+        composeRule.onNodeWithText("创建第一个学习项目：书籍、课程或技能").assertIsDisplayed()
+        composeRule.onNodeWithText("学习项目").performClick()
+        composeRule.onAllNodesWithText("创建第一个学习项目：书籍、课程或技能").assertCountEquals(0)
+        composeRule.onNodeWithText("学习项目").performClick()
+        composeRule.onNodeWithText("创建第一个学习项目：书籍、课程或技能").assertIsDisplayed()
+    }
 }
 
