@@ -28,7 +28,15 @@ class BackupServiceInstrumentedTest {
         val sourceDatabase = inMemoryDatabase(context)
         val sourceRepository = LearnListRepository(sourceDatabase)
         val settings = SettingsRepository(context)
-        settings.update { it.copy(restDaysCsv = "6,7", soundEnabled = false, vibrationEnabled = true) }
+        settings.update {
+            it.copy(
+                restDaysCsv = "6,7",
+                soundEnabled = false,
+                vibrationEnabled = true,
+                feedbackAudioUri = "content://settings/system/notification_sound",
+                feedbackAudioName = "系统通知音",
+            )
+        }
         val project = sourceRepository.addProject("备份测试", "书籍")
         sourceRepository.addTask(project.id, "第一章", isRequired = true)
         val recoveredStart = 1_700_000_000_000L
@@ -99,6 +107,8 @@ class BackupServiceInstrumentedTest {
         assertEquals("6,7", restoredSettings.restDaysCsv)
         assertTrue(!restoredSettings.soundEnabled)
         assertTrue(restoredSettings.vibrationEnabled)
+        assertEquals("content://settings/system/notification_sound", restoredSettings.feedbackAudioUri)
+        assertEquals("系统通知音", restoredSettings.feedbackAudioName)
 
         sourceDatabase.close()
         targetDatabase.close()
@@ -141,4 +151,5 @@ class BackupServiceInstrumentedTest {
     private fun inMemoryDatabase(context: Context): LearnListDatabase =
         Room.inMemoryDatabaseBuilder(context, LearnListDatabase::class.java).build()
 }
+
 
