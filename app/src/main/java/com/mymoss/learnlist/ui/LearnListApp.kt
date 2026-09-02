@@ -2545,11 +2545,13 @@ private fun CollapsibleSectionHeader(
                     Text(text, style = MaterialTheme.typography.titleMedium)
                     subtitle?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp) }
                 }
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
             }
             trailing?.invoke()
-            IconButton(onClick = { onExpandedChange(!expanded) }) {
-                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (expanded) "收起$text" else "展开$text")
-            }
         }
     }
 }
