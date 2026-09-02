@@ -193,7 +193,7 @@ class LearnListViewModel(
         say("已完成首次学习，明天开始复习")
     }
 
-    fun review(taskId: String, rating: RecallRating, completedDate: LocalDate? = null) = action {
+    fun review(taskId: String, rating: RecallRating, completedDate: LocalDate? = null, onResult: (Boolean) -> Unit = {}) = action(onResult) {
         repository.reviewTask(taskId, rating, completedDate = completedDate ?: today())
         say(if (rating == RecallRating.SNOOZE) "已安排稍后提醒" else "复习记录已保存")
     }
