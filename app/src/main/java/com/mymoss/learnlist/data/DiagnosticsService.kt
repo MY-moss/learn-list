@@ -70,7 +70,7 @@ class DiagnosticsService(
             "updateTransferActive" to settings.updateTransferActive,
             "soundEnabled" to settings.soundEnabled,
             "vibrationEnabled" to settings.vibrationEnabled,
-            "feedbackAudioConfigured" to (settings.feedbackAudioPath != null),
+            "feedbackAudioConfigured" to (settings.feedbackAudioPath != null || settings.feedbackAudioUri != null),
             "restDaysConfigured" to settings.restDaysCsv.isNotBlank(),
         )
         buildDiagnosticsJson(
@@ -157,3 +157,4 @@ private fun jsonString(value: String): String = buildString {
 
 private fun String.safeDiagnosticValue(): String =
     filterNot(Char::isISOControl).take(80).ifBlank { "unknown" }
+
