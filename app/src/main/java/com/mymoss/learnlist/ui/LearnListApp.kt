@@ -911,9 +911,29 @@ private fun TodayScreen(
     val dailyProgressCalculator = remember { DailyProgressCalculator() }
     var missedTodoPrompt by remember { mutableStateOf<TodoEntity?>(null) }
     val promptedMissedTodoIds = remember { mutableSetOf<String>() }
-    LaunchedEffect(state.todos, today) {
-        if (missedTodoPrompt == null) {
-            state.todos.firstOrNull { it.id !in promptedMissedTodoIds && it.id !in todayInstanceSourceIds && it.previousMissedOccurrence(today) != null }?.let {
+    val canPromptMissedTodo = shouldPromptMissedTodo(
+        selectedDate = today,
+        currentDate = currentDate,
+        isRestDay = today.dayOfWeek in state.restDays,
+        hasEligibleProject = true,
+        hasMissedOccurrence = true,
+    )
+    LaunchedEffect(state.todos, state.projects, today, currentDate, state.restDays) {
+        if (!canPromptMissedTodo) {
+            missedTodoPrompt = null
+        } else if (missedTodoPrompt == null) {
+            state.todos.firstOrNull {
+                it.id !in promptedMissedTodoIds &&
+                    it.id !in todayInstanceSourceIds &&
+                    (it.projectId == null || it.projectId in activeProjectIds) &&
+                    shouldPromptMissedTodo(
+                        selectedDate = today,
+                        currentDate = currentDate,
+                        isRestDay = false,
+                        hasEligibleProject = true,
+                        hasMissedOccurrence = it.previousMissedOccurrence(today) != null,
+                    )
+            }?.let {
                 promptedMissedTodoIds += it.id
                 missedTodoPrompt = it
             }
@@ -1056,7 +1076,7 @@ private fun TodayScreen(
             },
         )
     }
-    missedTodoPrompt?.let { todo ->
+    if (canPromptMissedTodo) missedTodoPrompt?.takeIf { it.projectId == null || it.projectId in activeProjectIds }?.let { todo ->
         val missedDate = todo.previousMissedOccurrence(today)
         AlertDialog(
             onDismissRequest = { missedTodoPrompt = null },
@@ -2587,6 +2607,14 @@ private fun TodoEntity.previousMissedOccurrence(today: LocalDate): LocalDate? {
     return null
 }
 
+internal fun shouldPromptMissedTodo(
+    selectedDate: LocalDate,
+    currentDate: LocalDate,
+    isRestDay: Boolean,
+    hasEligibleProject: Boolean,
+    hasMissedOccurrence: Boolean,
+): Boolean = selectedDate == currentDate && !isRestDay && hasEligibleProject && hasMissedOccurrence
+
 private fun TodoEntity.isCompletedOn(date: LocalDate): Boolean = TodoCompletion.isCompleted(completedDates, date)
 
 private fun repeatLabel(rule: String): String = when (rule) { "DAILY" -> "每天"; "WEEKLY" -> "每周"; "WORKDAYS" -> "工作日"; "CUSTOM" -> "自定义"; else -> "一次性" }
@@ -2922,3 +2950,4 @@ private fun FeedbackModeChoiceRow(label: String, selected: String, onSelect: (St
 private fun FormDialog(title: String, onDismiss: () -> Unit, confirmLabel: String, content: @Composable ColumnScope.() -> Unit, onConfirm: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, shape = MaterialTheme.shapes.large, containerColor = MaterialTheme.colorScheme.surface, title = { Text(title) }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }, confirmButton = { Button(onClick = onConfirm) { Text(confirmLabel) } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
+
