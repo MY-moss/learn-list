@@ -140,6 +140,11 @@ class BackupService(
                     countdownFeedbackMode = imported.settings.countdownFeedbackMode,
                     focusAutoStartBreaks = imported.settings.focusAutoStartBreaks,
                     pendingUpdateVersionName = imported.settings.pendingUpdateVersionName,
+                    feedbackAudioUri = when {
+                        restoredAudio != null -> null
+                        mode == BackupImportMode.REPLACE -> imported.settings.feedbackAudioUri
+                        else -> imported.settings.feedbackAudioUri ?: current.feedbackAudioUri
+                    },
                     feedbackAudioPath = when {
                         restoredAudio != null -> restoredAudio.path
                         mode == BackupImportMode.REPLACE -> null
@@ -148,6 +153,7 @@ class BackupService(
                     feedbackAudioName = when {
                         restoredAudio != null -> restoredAudio.displayName
                         mode == BackupImportMode.REPLACE -> null
+                        imported.settings.feedbackAudioUri != null -> imported.settings.feedbackAudioName ?: current.feedbackAudioName
                         else -> current.feedbackAudioName
                     },
                 )
@@ -477,6 +483,8 @@ class BackupService(
         put("focusFeedbackMode", item.focusFeedbackMode)
         put("reminderFeedbackMode", item.reminderFeedbackMode)
         put("countdownFeedbackMode", item.countdownFeedbackMode)
+        putNullable("feedbackAudioUri", item.feedbackAudioUri)
+        putNullable("feedbackAudioName", item.feedbackAudioName)
         put("focusAutoStartBreaks", item.focusAutoStartBreaks)
         putNullable("pendingUpdateVersionName", item.pendingUpdateVersionName)
     }
@@ -579,6 +587,8 @@ class BackupService(
                 focusFeedbackMode = o.optString("focusFeedbackMode", "GLOBAL"),
                 reminderFeedbackMode = o.optString("reminderFeedbackMode", "GLOBAL"),
                 countdownFeedbackMode = o.optString("countdownFeedbackMode", "GLOBAL"),
+                feedbackAudioUri = o.nullableString("feedbackAudioUri"),
+                feedbackAudioName = o.nullableString("feedbackAudioName"),
                 focusAutoStartBreaks = o.optBoolean("focusAutoStartBreaks", false),
                 pendingUpdateVersionName = o.nullableString("pendingUpdateVersionName"),
             ),
@@ -708,3 +718,4 @@ class BackupService(
         const val SNAPSHOT_RETENTION_MILLIS = 30L * 24L * 60L * 60L * 1000L
     }
 }
+
