@@ -1,11 +1,13 @@
 # 发布前待办
 
-## v0.3.10 开发中：复习洞察
+## v0.3.10 已发布：复习洞察
 
 - [x] 统计页增加可折叠的反馈分布和薄弱项卡片。
 - [x] 薄弱项按模糊/忘记反馈排序，并保持复习项、阅读页、专注分钟各自独立的统计单位。
 - [x] 新增 `ReviewInsightsTest` 覆盖日期窗口、稍后反馈、记得率、排序和展示上限。
-- [ ] 通过 API 26/33 CI、AndroidTest 和签名 Release 后发布。
+- [x] 通过 API 26/33/36 CI、AndroidTest 和 PR #101，并合并到 `main`。
+- [x] 已上传 [v0.3.10 APK](https://github.com/MY-moss/learn-list/releases/download/v0.3.10/learn-list-v0.3.10.apk)，SHA-256：`5947067c059f6565e8639d5782627c8d635cc17a024e9584d4af14dd82404220`。
+- [ ] 实体设备仍需验证统计折叠、通知、省电、更新安装器回查和同签名覆盖升级。
 
 
 ## v0.3.9 已发布：批量复习
