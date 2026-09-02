@@ -167,6 +167,8 @@ import com.mymoss.learnlist.domain.GoalProgressAggregator
 import com.mymoss.learnlist.domain.GoalProgressCalculator
 import com.mymoss.learnlist.domain.InitialLearningTracker
 import com.mymoss.learnlist.domain.RecallRating
+import com.mymoss.learnlist.domain.ReviewQueue
+import com.mymoss.learnlist.domain.ReviewQueueItem
 import com.mymoss.learnlist.domain.TodoCompletion
 import com.mymoss.learnlist.domain.TodoRecurrence
 import com.mymoss.learnlist.domain.TodoRepeatRule
@@ -286,6 +288,10 @@ fun LearnListApp(
     var editGoal by remember { mutableStateOf<GoalEntity?>(null) }
     var editCountdown by remember { mutableStateOf<CountdownEntity?>(null) }
     var showReviewDialog by remember { mutableStateOf<LearningTaskEntity?>(null) }
+    // The dialog itself is not restored as a saved entity; keep its queue in
+    // the same composition so a process restart cannot reuse a stale batch.
+    var reviewBatchIds by remember { mutableStateOf(emptyList<String>()) }
+    var reviewBatchIndex by remember { mutableStateOf(0) }
     var showCorrectionDialog by remember { mutableStateOf<LearningTaskEntity?>(null) }
     var showPagesDialog by remember { mutableStateOf<ReadingPlanEntity?>(null) }
     var showReadingAdjustmentDialog by remember { mutableStateOf<ReadingPlanEntity?>(null) }
@@ -461,7 +467,11 @@ fun LearnListApp(
                             .fillMaxHeight(),
                     ) {
             composable(AppTab.TODAY.name) {
-                TodayScreen(state, padding, currentDay, deviceToday, { followsToday = it == deviceToday; currentDay = it }, viewModel, { showReviewDialog = it }, { showCorrectionDialog = it }, { showPagesDialog = it }, { showReadingAdjustmentDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget, reviewBatchSize, appClock.zone)
+                TodayScreen(state, padding, currentDay, deviceToday, { followsToday = it == deviceToday; currentDay = it }, viewModel, { showReviewDialog = it }, { tasks ->
+                    reviewBatchIds = tasks.map(LearningTaskEntity::id)
+                    reviewBatchIndex = 0
+                    showReviewDialog = tasks.firstOrNull()
+                }, { showCorrectionDialog = it }, { showPagesDialog = it }, { showReadingAdjustmentDialog = it }, viewModel::rebalanceReading, viewModel::adjustReadingTarget, reviewBatchSize, appClock.zone)
             }
             composable(AppTab.LEARN.name) {
                 LearnScreen(
@@ -596,7 +606,39 @@ fun LearnListApp(
         }
     }
     showReviewDialog?.let { task ->
-        ReviewDialog(task, { showReviewDialog = null }) { rating -> viewModel.review(task.id, rating, currentDay); showReviewDialog = null }
+        val batchPosition = reviewBatchIds.indexOf(task.id)
+        val batchLabel = batchPosition.takeIf { it >= 0 }?.let { "批量复习 · 第 ${it + 1} / ${reviewBatchIds.size} 项" }
+        ReviewDialog(
+            task = task,
+            onDismiss = {
+                showReviewDialog = null
+                reviewBatchIds = emptyList()
+                reviewBatchIndex = 0
+            },
+            batchLabel = batchLabel,
+        ) { rating, onComplete ->
+            val isBatch = reviewBatchIds.isNotEmpty() && batchPosition >= 0
+            viewModel.review(task.id, rating, currentDay) { success ->
+                onComplete(success)
+                if (!success || showReviewDialog?.id != task.id) return@review
+                if (!isBatch) {
+                    showReviewDialog = null
+                    return@review
+                }
+                val nextTask = reviewBatchIds.drop(reviewBatchIndex + 1)
+                    .asSequence()
+                    .mapNotNull { nextId -> state.tasks.firstOrNull { it.id == nextId } }
+                    .firstOrNull()
+                if (nextTask == null) {
+                    showReviewDialog = null
+                    reviewBatchIds = emptyList()
+                    reviewBatchIndex = 0
+                } else {
+                    reviewBatchIndex = reviewBatchIds.indexOf(nextTask.id)
+                    showReviewDialog = nextTask
+                }
+            }
+        }
     }
     showCorrectionDialog?.let { task ->
         ReviewCorrectionDialog(task, { showCorrectionDialog = null }, today = deviceToday) { stage, nextDate, reason ->
@@ -875,6 +917,7 @@ private fun TodayScreen(
     onDateChange: (LocalDate) -> Unit,
     viewModel: LearnListViewModel,
     onReview: (LearningTaskEntity) -> Unit,
+    onStartReviewBatch: (List<LearningTaskEntity>) -> Unit,
     onCorrectReview: (LearningTaskEntity) -> Unit,
     onPages: (ReadingPlanEntity) -> Unit,
     onAdjustReading: (ReadingPlanEntity) -> Unit,
@@ -884,13 +927,34 @@ private fun TodayScreen(
     zoneId: ZoneId,
 ) {
     val activeProjectIds = state.projects.filterNot(ProjectEntity::isPaused).map(ProjectEntity::id).toSet()
-    val dueTasks = state.tasks
-        .filter { it.projectId in activeProjectIds && it.isDueOn(today) }
-        .sortedWith(
-            compareByDescending<LearningTaskEntity> { task ->
-                task.nextReviewDate?.let { runCatching { LocalDate.parse(it).isBefore(today) }.getOrDefault(false) } == true
-            }.thenBy { task -> task.nextReviewDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: today },
-        )
+    val tasksById = state.tasks.associateBy(LearningTaskEntity::id)
+    val dueTasks = ReviewQueue.order(
+        items = state.tasks.map { task ->
+            ReviewQueueItem(
+                id = task.id,
+                projectId = task.projectId,
+                hasLearned = task.hasLearned,
+                nextReviewDate = task.nextReviewDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+                snoozedUntil = task.snoozedUntil?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+            )
+        },
+        today = today,
+        activeProjectIds = activeProjectIds,
+    ).mapNotNull { item -> tasksById[item.id] }
+    val suggestedReviewBatch = ReviewQueue.recommendedBatch(
+        items = dueTasks.map { task ->
+            ReviewQueueItem(
+                id = task.id,
+                projectId = task.projectId,
+                hasLearned = task.hasLearned,
+                nextReviewDate = task.nextReviewDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+                snoozedUntil = task.snoozedUntil?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+            )
+        },
+        today = today,
+        activeProjectIds = activeProjectIds,
+        batchSize = reviewBatchSize,
+    ).mapNotNull { item -> tasksById[item.id] }
     val readingPlans = state.readingPlans.filter { plan ->
         val started = runCatching { LocalDate.parse(plan.startDate) <= today }.getOrDefault(true)
         !plan.isPaused && plan.projectId in activeProjectIds && started && (plan.currentPage < plan.totalPages || state.pageLogs.any { it.planId == plan.id && it.localDate == today.toString() })
@@ -1036,7 +1100,20 @@ private fun TodayScreen(
                 }
             }
         }
-        item { CollapsibleSectionHeader("今天先做这些", "建议先完成 $reviewBatchSize 项；所有逾期复习都会列出", requiredActionsExpanded) { requiredActionsExpanded = it } }
+        item {
+            CollapsibleSectionHeader(
+                text = "今天先做这些",
+                subtitle = if (suggestedReviewBatch.isEmpty()) "所有逾期复习都会列出" else "建议先完成 ${suggestedReviewBatch.size} 项；所有逾期复习都会列出",
+                expanded = requiredActionsExpanded,
+                trailing = if (suggestedReviewBatch.isNotEmpty()) ({
+                    TextButton(onClick = { onStartReviewBatch(suggestedReviewBatch) }) {
+                        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("开始一批")
+                    }
+                }) else null,
+            ) { requiredActionsExpanded = it }
+        }
         if (requiredActionsExpanded) {
             if (dueTasks.isEmpty()) item { EmptyCard("没有积压复习。去学习页添加一个新任务吧。", Icons.Default.AutoAwesome) }
             items(dueTasks, key = { it.id }) { task ->
@@ -2798,9 +2875,54 @@ private fun CountdownDialog(initialCountdown: CountdownEntity? = null, today: Lo
 }
 
 @Composable
-private fun ReviewDialog(task: LearningTaskEntity, onDismiss: () -> Unit, onReview: (RecallRating) -> Unit) {
-    var showNotes by rememberSaveable { mutableStateOf(false) }
-    AlertDialog(onDismissRequest = onDismiss, shape = MaterialTheme.shapes.large, containerColor = MaterialTheme.colorScheme.surface, title = { Text("复习：${task.title}") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { if (task.prompt.isNotBlank()) Text("回忆提示：${task.prompt}", fontWeight = FontWeight.SemiBold); Text("先在脑中回忆，再选择这次的状态。资料默认隐藏。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp); OutlinedButton(onClick = { showNotes = !showNotes }) { Icon(if (showNotes) Icons.Default.VisibilityOff else Icons.Default.Visibility, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text(if (showNotes) "隐藏资料" else "查看资料") }; if (showNotes) { if (task.notes.isNotBlank()) Text(task.notes); if (task.source.isNotBlank()) Text("来源：${task.source}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }, confirmButton = { Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { TextButton(onClick = { onReview(RecallRating.FORGOT) }) { Text("忘记") }; TextButton(onClick = { onReview(RecallRating.FUZZY) }) { Text("模糊") }; Button(onClick = { onReview(RecallRating.REMEMBERED) }) { Text("记得") } } }, dismissButton = { TextButton(onClick = { onReview(RecallRating.SNOOZE) }) { Text("稍后") } })
+private fun ReviewDialog(
+    task: LearningTaskEntity,
+    onDismiss: () -> Unit,
+    batchLabel: String? = null,
+    onReview: (RecallRating, (Boolean) -> Unit) -> Unit,
+) {
+    var showNotes by rememberSaveable(task.id) { mutableStateOf(false) }
+    var submitting by rememberSaveable(task.id) { mutableStateOf(false) }
+    fun submit(rating: RecallRating) {
+        if (submitting) return
+        submitting = true
+        onReview(rating) { success -> if (!success) submitting = false }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.large,
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("复习：${task.title}")
+                batchLabel?.let { Text(it, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (task.prompt.isNotBlank()) Text("回忆提示：${task.prompt}", fontWeight = FontWeight.SemiBold)
+                Text("先在脑中回忆，再选择这次的状态。资料默认隐藏。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                OutlinedButton(onClick = { showNotes = !showNotes }, enabled = !submitting) {
+                    Icon(if (showNotes) Icons.Default.VisibilityOff else Icons.Default.Visibility, null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (showNotes) "隐藏资料" else "查看资料")
+                }
+                if (showNotes) {
+                    if (task.notes.isNotBlank()) Text(task.notes)
+                    if (task.source.isNotBlank()) Text("来源：${task.source}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (submitting) Text("正在保存这次复习…", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+            }
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                TextButton(onClick = { submit(RecallRating.FORGOT) }, enabled = !submitting) { Text("忘记") }
+                TextButton(onClick = { submit(RecallRating.FUZZY) }, enabled = !submitting) { Text("模糊") }
+                Button(onClick = { submit(RecallRating.REMEMBERED) }, enabled = !submitting) { Text("记得") }
+            }
+        },
+        dismissButton = { TextButton(onClick = { submit(RecallRating.SNOOZE) }, enabled = !submitting) { Text("稍后") } },
+    )
 }
 
 @Composable
@@ -2966,4 +3088,5 @@ private fun FeedbackModeChoiceRow(label: String, selected: String, onSelect: (St
 private fun FormDialog(title: String, onDismiss: () -> Unit, confirmLabel: String, content: @Composable ColumnScope.() -> Unit, onConfirm: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, shape = MaterialTheme.shapes.large, containerColor = MaterialTheme.colorScheme.surface, title = { Text(title) }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }, confirmButton = { Button(onClick = onConfirm) { Text(confirmLabel) } }, dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
+
 

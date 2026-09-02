@@ -5,6 +5,8 @@ Learn List 是一个离线优先的 Android 学习打卡应用：把艾宾浩斯
 ## 首版能力
 
 - 固定间隔复习：1 / 2 / 4 / 7 / 15 / 30 / 60 / 90 天；记得、模糊、忘记、稍后四种反馈。
+- 今日复习队列按逾期优先；支持按建议批次连续复习，批次大小只影响入口，不会隐藏剩余积压。
+- 今日复习队列按逾期优先；支持按建议批次连续复习，批次大小只影响入口，不会隐藏剩余积压。
 - 学习项目、学习任务、回忆提示、隐藏资料、来源、标签、暂停、归档与恢复。
 - 阅读计划：总页数、每日目标、截止日、阅读日志、欠页均摊和当天目标微调。
 - 今日必做百分比、连续打卡、复习积压、阅读页数和专注时长。
@@ -77,4 +79,5 @@ GitHub Actions 使用以下 Secrets：`RELEASE_KEYSTORE_BASE64`、`RELEASE_STORE
 直接从 GitHub 侧载面向自用或少量可信用户；随着 Android 开发者身份验证要求逐步实施，后续可增加商店或已验证分发渠道。
 
 安装、备份和更新说明见 [`docs/installation.md`](docs/installation.md) 与 [`docs/release.md`](docs/release.md)；更多领域词汇、架构取舍和验收清单见 [`CONTEXT.md`](CONTEXT.md)、[`docs/adr`](docs/adr) 和 [`tasks/plan.md`](tasks/plan.md)。
+
 
