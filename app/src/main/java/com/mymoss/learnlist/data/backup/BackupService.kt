@@ -152,8 +152,8 @@ class BackupService(
                     },
                     feedbackAudioName = when {
                         restoredAudio != null -> restoredAudio.displayName
-                        mode == BackupImportMode.REPLACE -> null
                         imported.settings.feedbackAudioUri != null -> imported.settings.feedbackAudioName ?: current.feedbackAudioName
+                        mode == BackupImportMode.REPLACE -> null
                         else -> current.feedbackAudioName
                     },
                 )
