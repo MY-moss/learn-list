@@ -83,11 +83,30 @@ object FeedbackAudioManager {
 
     private fun playCustom(context: Context, path: String?): Boolean {
         val file = ownedFile(context, path)?.takeIf { it.isFile && it.length() > 0L } ?: return false
-        return playMedia(context) { MediaPlayer.create(context.applicationContext, Uri.fromFile(file)) }
+        return playMedia { createPreparedMediaPlayer(context, Uri.fromFile(file)) }
     }
 
-    private fun playBuiltIn(context: Context): Boolean = playMedia(context) {
-        MediaPlayer.create(context.applicationContext, R.raw.feedback_complete)
+    private fun playBuiltIn(context: Context): Boolean = playMedia {
+        createPreparedMediaPlayer(
+            context,
+            Uri.parse("android.resource://${context.packageName}/${R.raw.feedback_complete}"),
+        )
+    }
+
+    /** Creates a prepared player with audio attributes applied before prepare(). */
+    internal fun createPreparedMediaPlayer(context: Context, uri: Uri): MediaPlayer? {
+        var player: MediaPlayer? = null
+        return runCatching {
+            player = MediaPlayer().apply {
+                setAudioAttributes(notificationAudioAttributes())
+                setDataSource(context.applicationContext, uri)
+                prepare()
+            }
+            player
+        }.getOrElse {
+            player?.let { runCatching { it.release() } }
+            null
+        }
     }
 
     private fun playSystemDefault(context: Context): Boolean {
@@ -111,10 +130,9 @@ object FeedbackAudioManager {
         }
     }
 
-    private fun playMedia(context: Context, create: () -> MediaPlayer?): Boolean {
+    private fun playMedia(create: () -> MediaPlayer?): Boolean {
         val player = runCatching { create() }.getOrNull() ?: return false
         return runCatching {
-            player.setAudioAttributes(notificationAudioAttributes())
             synchronized(playbackLock) {
                 stopActiveLocked()
                 activePlayer = player
