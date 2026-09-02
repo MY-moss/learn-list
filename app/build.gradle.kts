@@ -1,6 +1,8 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.api.tasks.Sync
 import java.io.File
+import kotlin.math.PI
+import kotlin.math.sin
 
 plugins {
     id("com.android.application")
@@ -16,8 +18,8 @@ android {
         applicationId = "com.mymoss.learnlist"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "0.3.7"
+        versionCode = 21
+        versionName = "0.3.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -66,6 +68,74 @@ android {
         buildConfig = true
     }
 }
+
+// Keep a short, audible fallback inside every APK. Some phones/emulators have
+// no notification sound selected, so relying only on RingtoneManager can make
+// an otherwise enabled feedback action completely silent.
+val generatedFeedbackResDir = layout.buildDirectory.dir("generated/res/feedback/main")
+val generateFeedbackSound = tasks.register("generateFeedbackSound") {
+    val output = generatedFeedbackResDir.map { it.file("raw/feedback_complete.wav") }
+    outputs.file(output)
+    doLast {
+        val outputFile = output.get().asFile
+        outputFile.parentFile.mkdirs()
+        val sampleRate = 44_100
+        val sampleCount = (sampleRate * 0.52).toInt()
+        val pcm = ByteArray(sampleCount * 2)
+        for (index in 0 until sampleCount) {
+            val position = index.toDouble() / sampleCount
+            val frequency = if (position < 0.55) {
+                740.0 + 180.0 * (position / 0.55)
+            } else {
+                920.0 - 120.0 * ((position - 0.55) / 0.45)
+            }
+            val envelope = when {
+                position < 0.04 -> position / 0.04
+                position > 0.78 -> ((1.0 - position) / 0.22).coerceAtLeast(0.0)
+                else -> 1.0
+            }
+            val time = index.toDouble() / sampleRate
+            val tone = sin(2.0 * PI * frequency * time)
+            val harmonic = sin(2.0 * PI * frequency * 2.0 * time) * 0.22
+            val value = ((tone + harmonic) * envelope * 0.28 * Short.MAX_VALUE)
+                .toInt()
+                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            pcm[index * 2] = (value and 0xff).toByte()
+            pcm[index * 2 + 1] = ((value ushr 8) and 0xff).toByte()
+        }
+        val header = ByteArray(44)
+        fun ascii(offset: Int, value: String) {
+            value.toByteArray(Charsets.US_ASCII).copyInto(header, offset)
+        }
+        fun intLe(offset: Int, value: Int) {
+            header[offset] = (value and 0xff).toByte()
+            header[offset + 1] = ((value ushr 8) and 0xff).toByte()
+            header[offset + 2] = ((value ushr 16) and 0xff).toByte()
+            header[offset + 3] = ((value ushr 24) and 0xff).toByte()
+        }
+        fun shortLe(offset: Int, value: Int) {
+            header[offset] = (value and 0xff).toByte()
+            header[offset + 1] = ((value ushr 8) and 0xff).toByte()
+        }
+        ascii(0, "RIFF")
+        intLe(4, 36 + pcm.size)
+        ascii(8, "WAVE")
+        ascii(12, "fmt ")
+        intLe(16, 16)
+        shortLe(20, 1)
+        shortLe(22, 1)
+        intLe(24, sampleRate)
+        intLe(28, sampleRate * 2)
+        shortLe(32, 2)
+        shortLe(34, 16)
+        ascii(36, "data")
+        intLe(40, pcm.size)
+        outputFile.writeBytes(header + pcm)
+    }
+}
+
+android.sourceSets.getByName("main").res.srcDir(generatedFeedbackResDir.get().asFile)
+tasks.named("preBuild").configure { dependsOn(generateFeedbackSound) }
 
 kotlin {
     compilerOptions {

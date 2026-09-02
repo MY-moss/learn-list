@@ -246,6 +246,7 @@ fun LearnListApp(
     reminderFeedbackMode: String = "GLOBAL",
     countdownFeedbackMode: String = "GLOBAL",
     feedbackAudioName: String? = null,
+    feedbackAudioUri: String? = null,
     reviewBatchSize: Int = 20,
     onReviewBatchSizeChange: (Int) -> Unit = {},
     focusAutoStartBreaks: Boolean = false,
@@ -256,6 +257,7 @@ fun LearnListApp(
     onReminderFeedbackModeChange: (String) -> Unit = {},
     onCountdownFeedbackModeChange: (String) -> Unit = {},
     onChooseFeedbackAudio: () -> Unit = {},
+    onChooseSystemRingtone: () -> Unit = {},
     onPreviewFeedbackAudio: () -> Unit = {},
     onClearFeedbackAudio: () -> Unit = {},
     onboardingCompleted: Boolean? = null,
@@ -526,6 +528,7 @@ fun LearnListApp(
                     reminderFeedbackMode = reminderFeedbackMode,
                     countdownFeedbackMode = countdownFeedbackMode,
                     feedbackAudioName = feedbackAudioName,
+                    feedbackAudioUri = feedbackAudioUri,
                     reviewBatchSize = reviewBatchSize,
                     onReviewBatchSizeChange = onReviewBatchSizeChange,
                     focusAutoStartBreaks = focusAutoStartBreaks,
@@ -536,6 +539,7 @@ fun LearnListApp(
                     onReminderFeedbackModeChange = onReminderFeedbackModeChange,
                     onCountdownFeedbackModeChange = onCountdownFeedbackModeChange,
                     onChooseFeedbackAudio = onChooseFeedbackAudio,
+                    onChooseSystemRingtone = onChooseSystemRingtone,
                     onPreviewFeedbackAudio = onPreviewFeedbackAudio,
                     onClearFeedbackAudio = onClearFeedbackAudio,
                     onReplayOnboarding = { showOnboarding = true },
@@ -1765,6 +1769,7 @@ private fun SettingsScreen(
     reminderFeedbackMode: String,
     countdownFeedbackMode: String,
     feedbackAudioName: String?,
+    feedbackAudioUri: String?,
     reviewBatchSize: Int,
     onReviewBatchSizeChange: (Int) -> Unit,
     focusAutoStartBreaks: Boolean,
@@ -1775,6 +1780,7 @@ private fun SettingsScreen(
     onReminderFeedbackModeChange: (String) -> Unit,
     onCountdownFeedbackModeChange: (String) -> Unit,
     onChooseFeedbackAudio: () -> Unit,
+    onChooseSystemRingtone: () -> Unit,
     onPreviewFeedbackAudio: () -> Unit,
     onClearFeedbackAudio: () -> Unit,
     onReplayOnboarding: () -> Unit,
@@ -1940,7 +1946,7 @@ private fun SettingsScreen(
                     FeedbackToggleRow(
                         icon = Icons.AutoMirrored.Filled.VolumeUp,
                         title = "声音提示",
-                        subtitle = "使用系统通知提示音",
+                        subtitle = "默认使用应用内置提示音，也可选择手机铃声",
                         checked = soundEnabled,
                         onCheckedChange = onSoundEnabledChange,
                     )
@@ -1958,17 +1964,25 @@ private fun SettingsScreen(
                                 Spacer(Modifier.width(8.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text("提示音", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text(feedbackAudioName ?: "当前使用系统通知音效", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        feedbackAudioName
+                                            ?: if (feedbackAudioUri != null) "手机系统铃声" else "应用内置提示音（默认）",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
                                 TextButton(onClick = onPreviewFeedbackAudio) { Text("试听") }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = onChooseSystemRingtone, modifier = Modifier.weight(1f)) { Text("选择手机铃声") }
                                 OutlinedButton(onClick = onChooseFeedbackAudio, modifier = Modifier.weight(1f)) { Text("导入本地音效") }
-                                if (feedbackAudioName != null) {
-                                    TextButton(onClick = onClearFeedbackAudio, modifier = Modifier.weight(1f)) { Text("恢复系统音效") }
-                                }
                             }
-                            Text("音频会复制到应用私有目录；文件缺失或无法播放时自动回退到系统音效。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                            if (feedbackAudioName != null || feedbackAudioUri != null) {
+                                TextButton(onClick = onClearFeedbackAudio, modifier = Modifier.fillMaxWidth()) { Text("恢复应用内置提示音") }
+                            }
+                            Text("默认提示音随 APK 内置，不依赖手机是否设置了通知音；选择手机铃声后会跟随系统设置。导入的音频会复制到应用私有目录，文件缺失时回退到内置提示音。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                         }
                     }
                     Text("以上是全局默认；下面可以按场景覆盖。手机的静音、勿扰模式或系统通知设置仍可能抑制反馈。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
