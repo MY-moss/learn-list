@@ -2,7 +2,7 @@
 
 ## 安装首版 APK
 
-推荐下载当前已签名的稳定版：[v0.3.4 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.3.4)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.3.4/learn-list-v0.3.4.apk) 或 [SHA-256 摘要](https://github.com/MY-moss/learn-list/releases/download/v0.3.4/learn-list-v0.3.4.apk.sha256)。
+推荐下载当前已签名的稳定版：[v0.3.5 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.3.5)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.3.5/learn-list-v0.3.5.apk) 或 [SHA-256 摘要](https://github.com/MY-moss/learn-list/releases/download/v0.3.5/learn-list-v0.3.5.apk.sha256)。
 
 1. 在手机上允许文件管理器安装来自此来源的应用。
 2. 将 Release APK 或 `app/build/outputs/apk/debug/app-debug.apk` 传到手机并打开。
@@ -17,6 +17,7 @@ Debug APK 只适合自用测试。正式覆盖升级必须使用同一把 Releas
 ## 首次设置建议
 
 - 先创建一个学习项目，再加入学习任务或阅读计划。
+- 学习页的项目总览、项目卡片，以及待办页的“待完成/已完成”分组都可以独立收起；输入搜索词时会自动展开匹配内容。
 - 为阅读计划填写总页数和每日页数；填写截止日后可以使用“剩余页数均摊”。
 - 在“设置 → 固定提醒”添加每日进度或项目提醒，并按需要选择星期和安静时段。
 - 从旧版本升级后，旧的每日进度提醒会在首次启动或导出备份前自动转换为一条可编辑的“每日总览”提醒；如果已有该提醒，不会重复创建。
