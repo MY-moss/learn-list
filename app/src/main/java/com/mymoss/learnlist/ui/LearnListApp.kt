@@ -1965,7 +1965,8 @@ private fun SettingsScreen(
                                 Column(Modifier.weight(1f)) {
                                     Text("提示音", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                     Text(
-                                        feedbackAudioName ?: "应用内置提示音（默认）",
+                                        feedbackAudioName
+                                            ?: if (feedbackAudioUri != null) "手机系统铃声" else "应用内置提示音（默认）",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 11.sp,
                                         maxLines = 1,
