@@ -1,10 +1,12 @@
 # Learn List 首版实施与验收
 
-## v0.3.11 开发中：反馈音效播放可靠性
+## v0.3.11 已发布：反馈音效播放可靠性
 
-- [x] 增加 AndroidTest 覆盖播放器创建、准备和启动路径（当前本机无设备，尚待模拟器执行）。
+- [x] 增加 AndroidTest 覆盖播放器创建、准备和启动路径；API 26/33/36 模拟器均已通过。
 - [x] 内置音效、本地导入音效均在 `prepare()` 前设置 `AudioAttributes`，避免部分 Android 版本无声。
-- [ ] 通过本地完整门禁、API 26/33/36 CI 和签名 Release；实体设备仍需验证音量、静音/勿扰模式和后台播放。
+- [x] 通过本地完整门禁、API 26/33/36 CI 和签名 Release，PR #103 已合并。
+- [x] APK：[learn-list-v0.3.11.apk](https://github.com/MY-moss/learn-list/releases/download/v0.3.11/learn-list-v0.3.11.apk)，SHA-256：`45981ec6a69b78c15a2a31a6e4b425c9b89d506db2c2d90ee2e25cc143ff1f8d`。
+- [ ] 实体设备仍需验证音量、静音/勿扰模式、蓝牙路由和后台播放听感。
 
 ## v0.3.10 已发布：复习洞察
 
