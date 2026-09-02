@@ -2,6 +2,7 @@ package com.mymoss.learnlist
 
 import android.content.Context
 import android.media.MediaPlayer
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.mymoss.learnlist.data.AppSettings
@@ -28,6 +29,18 @@ class FeedbackAudioManagerInstrumentedTest {
         assertEquals("应用内置提示音（默认）", FeedbackAudioManager.defaultDisplayName())
         assertTrue(AppSettings().feedbackAudioPath == null)
         assertTrue(AppSettings().feedbackAudioUri == null)
+    }
+    @Test
+    fun preparedFeedbackPlayerCanStartPackagedSound() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val source = Uri.parse("android.resource://${context.packageName}/${R.raw.feedback_complete}")
+
+        val player = FeedbackAudioManager.createPreparedMediaPlayer(context, source)
+
+        assertNotNull("内置提示音应该能创建已准备好的播放器", player)
+        assertTrue("已准备好的播放器应该能开始播放", runCatching { player?.start(); player?.isPlaying == true }.getOrDefault(false))
+        assertTrue("已准备好的播放器应该有有效时长", (player?.duration ?: 0) > 0)
+        player?.release()
     }
 }
 

@@ -18,8 +18,8 @@ android {
         applicationId = "com.mymoss.learnlist"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "0.3.10"
+        versionCode = 24
+        versionName = "0.3.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
