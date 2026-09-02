@@ -4,6 +4,9 @@ import android.Manifest
 import android.app.AlarmManager
 import android.content.pm.PackageManager
 import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -106,11 +109,38 @@ class MainActivity : ComponentActivity() {
             runCatching {
                 val imported = FeedbackAudioManager.importToPrivateDirectory(applicationContext, uri)
                 val previous = settingsRepository.settings.first().feedbackAudioPath
-                settingsRepository.update { it.copy(feedbackAudioPath = imported.path, feedbackAudioName = imported.displayName) }
+                settingsRepository.update {
+                    it.copy(
+                        feedbackAudioPath = imported.path,
+                        feedbackAudioName = imported.displayName,
+                        feedbackAudioUri = null,
+                    )
+                }
                 FeedbackAudioManager.deleteIfOwned(applicationContext, previous)
                 imported.displayName
             }.onSuccess { showToast("已导入音效：$it") }
                 .onFailure { showToast("导入音效失败：${it.message}") }
+        }
+    }
+
+    private val pickSystemRingtone = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val uri = result.data?.pickedRingtoneUri() ?: return@registerForActivityResult
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                val previous = settingsRepository.settings.first().feedbackAudioPath
+                val displayName = FeedbackAudioManager.displayName(applicationContext, uri)
+                settingsRepository.update {
+                    it.copy(
+                        feedbackAudioPath = null,
+                        feedbackAudioUri = uri.toString(),
+                        feedbackAudioName = displayName,
+                    )
+                }
+                FeedbackAudioManager.deleteIfOwned(applicationContext, previous)
+                displayName
+            }.onSuccess { showToast("已选择系统提示音：$it") }
+                .onFailure { showToast("选择系统提示音失败：${it.message}") }
         }
     }
 
@@ -154,6 +184,7 @@ class MainActivity : ComponentActivity() {
                     reminderFeedbackMode = appSettings?.reminderFeedbackMode ?: "GLOBAL",
                     countdownFeedbackMode = appSettings?.countdownFeedbackMode ?: "GLOBAL",
                     feedbackAudioName = appSettings?.feedbackAudioName,
+                    feedbackAudioUri = appSettings?.feedbackAudioUri,
                     reviewBatchSize = appSettings?.reviewLimit ?: 20,
                     onReviewBatchSizeChange = { size ->
                         lifecycleScope.launch { settingsRepository.update { it.copy(reviewLimit = size) } }
@@ -178,6 +209,7 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch { settingsRepository.update { it.copy(countdownFeedbackMode = mode) } }
                     },
                     onChooseFeedbackAudio = ::chooseFeedbackAudio,
+                    onChooseSystemRingtone = ::chooseSystemRingtone,
                     onPreviewFeedbackAudio = {
                         lifecycleScope.launch {
                             FeedbackAudioManager.preview(applicationContext, settingsRepository.settings.first())
@@ -312,12 +344,30 @@ class MainActivity : ComponentActivity() {
         openFeedbackAudio.launch(arrayOf("audio/*"))
     }
 
+    private fun chooseSystemRingtone() {
+        lifecycleScope.launch {
+            val settings = settingsRepository.settings.first()
+            val existing = settings.feedbackAudioUri?.let { value -> runCatching { Uri.parse(value) }.getOrNull() }
+            val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "选择提醒音")
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                putExtra(
+                    RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                    existing ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                )
+            }
+            pickSystemRingtone.launch(intent)
+        }
+    }
+
     private fun clearFeedbackAudio() {
         lifecycleScope.launch(Dispatchers.IO) {
             val previous = settingsRepository.settings.first().feedbackAudioPath
             FeedbackAudioManager.deleteIfOwned(applicationContext, previous)
-            settingsRepository.update { it.copy(feedbackAudioPath = null, feedbackAudioName = null) }
-            showToast("已恢复系统提示音")
+            settingsRepository.update { it.copy(feedbackAudioPath = null, feedbackAudioUri = null, feedbackAudioName = null) }
+            showToast("已恢复应用内置提示音")
         }
     }
 
@@ -564,6 +614,14 @@ class MainActivity : ComponentActivity() {
         runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
     }
 
+    @Suppress("DEPRECATION")
+    private fun Intent.pickedRingtoneUri(): Uri? = if (Build.VERSION.SDK_INT >= 33) {
+        getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
+    } else {
+        getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+    }
+
     private companion object { const val NOTIFICATION_REQUEST_CODE = 1001 }
 }
+
 
