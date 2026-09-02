@@ -167,6 +167,10 @@ import com.mymoss.learnlist.domain.GoalProgressAggregator
 import com.mymoss.learnlist.domain.GoalProgressCalculator
 import com.mymoss.learnlist.domain.InitialLearningTracker
 import com.mymoss.learnlist.domain.RecallRating
+import com.mymoss.learnlist.domain.ReviewInsightRecord
+import com.mymoss.learnlist.domain.ReviewInsights
+import com.mymoss.learnlist.domain.ReviewInsightsSummary
+import com.mymoss.learnlist.domain.ReviewWeakPoint
 import com.mymoss.learnlist.domain.ReviewQueue
 import com.mymoss.learnlist.domain.ReviewQueueItem
 import com.mymoss.learnlist.domain.TodoCompletion
@@ -1761,8 +1765,18 @@ private fun StatsScreen(
 ) {
     var heatMapExpanded by rememberSaveable { mutableStateOf(true) }
     var trendExpanded by rememberSaveable { mutableStateOf(true) }
+    var reviewInsightsExpanded by rememberSaveable { mutableStateOf(true) }
     var goalsExpanded by rememberSaveable { mutableStateOf(true) }
     var countdownExpanded by rememberSaveable { mutableStateOf(true) }
+    val reviewInsights = remember(
+        state.reviewLogs,
+        state.tasks,
+        state.deletedTasks,
+        state.projects,
+        state.archivedProjects,
+        state.deletedProjects,
+        today,
+    ) { reviewInsightsFor(state, today) }
     LazyColumn(
         contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 4.dp, 20.dp, padding.calculateBottomPadding() + 80.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -1796,6 +1810,13 @@ private fun StatsScreen(
             }
         }
         item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CollapsibleSectionHeader("复习洞察", "最近 28 天的反馈分布与薄弱点", reviewInsightsExpanded) { reviewInsightsExpanded = it }
+                if (reviewInsightsExpanded) ReviewInsightsCard(reviewInsights)
+            }
+        }
+
+        item {
             CollapsibleSectionHeader(
                 text = "量化目标",
                 subtitle = "给想坚持的事一个可见的终点",
@@ -1821,6 +1842,122 @@ private fun StatsScreen(
             if (state.countdowns.isEmpty()) item { EmptyCard("为重要事件留一个提前量。", Icons.Default.CalendarToday) }
             items(state.countdowns, key = { it.id }) { countdown -> CountdownCard(countdown, { onCompleteCountdown(countdown.id) }, { onEditCountdown(countdown) }, { onDeleteCountdown(countdown.id) }, clock) }
         }
+    }
+}
+
+private fun reviewInsightsFor(state: LearnListUiState, today: LocalDate): ReviewInsightsSummary {
+    val projectsById = (state.projects + state.archivedProjects + state.deletedProjects).associateBy(ProjectEntity::id)
+    val tasksById = (state.tasks + state.deletedTasks).associateBy(LearningTaskEntity::id)
+    val records = state.reviewLogs.mapNotNull { log ->
+        val rating = runCatching { RecallRating.valueOf(log.rating) }.getOrNull()
+        val date = runCatching { LocalDate.parse(log.reviewedOn) }.getOrNull()
+        if (rating == null || date == null) {
+            null
+        } else {
+            val task = tasksById[log.taskId]
+            ReviewInsightRecord(
+                taskId = log.taskId,
+                taskTitle = task?.title ?: "历史任务",
+                projectTitle = task?.let { projectsById[it.projectId]?.title },
+                rating = rating,
+                reviewedOn = date,
+            )
+        }
+    }
+    return ReviewInsights.summarize(records, today)
+}
+
+@Composable
+private fun ReviewInsightsCard(summary: ReviewInsightsSummary) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (summary.feedback.total == 0) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(
+                        Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.BarChart, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("还没有可分析的复习反馈", fontWeight = FontWeight.SemiBold)
+                        Text("完成第一次复习后，这里会显示记得率和需要加强的任务。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    }
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ReviewInsightMetric("记得", summary.feedback.remembered, MaterialTheme.colorScheme.secondary, Modifier.weight(1f))
+                    ReviewInsightMetric("模糊", summary.feedback.fuzzy, MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+                    ReviewInsightMetric("忘记", summary.feedback.forgot, MaterialTheme.colorScheme.error, Modifier.weight(1f))
+                }
+                LinearProgressIndicator(
+                    progress = { summary.feedback.recallPercent / 100f },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "最近 28 天记得率 ${summary.feedback.recallPercent}%" },
+                    color = MaterialTheme.colorScheme.secondary,
+                    trackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.14f),
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "最近 28 天 ${summary.feedback.total} 次复习 · ${summary.reviewedTaskCount} 个任务",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("记得率 ${summary.feedback.recallPercent}%", color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+                if (summary.weakPoints.isEmpty()) {
+                    Text("最近反馈稳定，继续保持当前复习节奏。", color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
+                } else {
+                    Text("建议优先回顾", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    summary.weakPoints.take(3).forEachIndexed { index, point -> ReviewWeakPointRow(index, point) }
+                    if (summary.weakPoints.size > 3) {
+                        Text("还有 ${summary.weakPoints.size - 3} 项需要加强，完整队列仍在今日页保留。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewInsightMetric(label: String, value: Int, accent: Color, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, shape = MaterialTheme.shapes.small, color = accent.copy(alpha = 0.10f)) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(value.toString(), color = accent, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun ReviewWeakPointRow(index: Int, point: ReviewWeakPoint) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+        Box(
+            Modifier.size(26.dp).clip(CircleShape).background(MaterialTheme.colorScheme.errorContainer),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("${index + 1}", color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(point.taskTitle, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                buildString {
+                    point.projectTitle?.let { append(it); append(" · ") }
+                    append("模糊 ${point.fuzzyCount} · 忘记 ${point.forgotCount}")
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text("${point.negativeCount} 次", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 12.sp)
     }
 }
 
