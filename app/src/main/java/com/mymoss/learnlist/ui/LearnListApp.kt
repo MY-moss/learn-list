@@ -288,8 +288,10 @@ fun LearnListApp(
     var editGoal by remember { mutableStateOf<GoalEntity?>(null) }
     var editCountdown by remember { mutableStateOf<CountdownEntity?>(null) }
     var showReviewDialog by remember { mutableStateOf<LearningTaskEntity?>(null) }
-    var reviewBatchIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
-    var reviewBatchIndex by rememberSaveable { mutableStateOf(0) }
+    // The dialog itself is not restored as a saved entity; keep its queue in
+    // the same composition so a process restart cannot reuse a stale batch.
+    var reviewBatchIds by remember { mutableStateOf(emptyList<String>()) }
+    var reviewBatchIndex by remember { mutableStateOf(0) }
     var showCorrectionDialog by remember { mutableStateOf<LearningTaskEntity?>(null) }
     var showPagesDialog by remember { mutableStateOf<ReadingPlanEntity?>(null) }
     var showReadingAdjustmentDialog by remember { mutableStateOf<ReadingPlanEntity?>(null) }
