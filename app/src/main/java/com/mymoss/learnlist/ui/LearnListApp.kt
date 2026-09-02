@@ -170,6 +170,7 @@ import com.mymoss.learnlist.domain.RecallRating
 import com.mymoss.learnlist.domain.ReviewInsightRecord
 import com.mymoss.learnlist.domain.ReviewInsights
 import com.mymoss.learnlist.domain.ReviewInsightsSummary
+import com.mymoss.learnlist.domain.ReviewWeakPoint
 import com.mymoss.learnlist.domain.ReviewQueue
 import com.mymoss.learnlist.domain.ReviewQueueItem
 import com.mymoss.learnlist.domain.TodoCompletion
