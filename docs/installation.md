@@ -2,7 +2,7 @@
 
 ## 安装首版 APK
 
-推荐下载当前已签名的稳定版：[v0.3.8 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.3.8)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.3.8/learn-list-v0.3.8.apk) 或 [SHA-256 摘要](https://github.com/MY-moss/learn-list/releases/download/v0.3.8/learn-list-v0.3.8.apk.sha256)。当前 APK 的 SHA-256 为 `963b5d6e975843d4f2843fd0fb9cd8c0e42faa73184e57f0e27287056abdb8d6`。
+推荐下载当前已签名的稳定版：[v0.3.9 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.3.9)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.3.9/learn-list-v0.3.9.apk) 或 [SHA-256 摘要](https://github.com/MY-moss/learn-list/releases/download/v0.3.9/learn-list-v0.3.9.apk.sha256)。当前 APK 的 SHA-256 为 `0d7c06c6ff9ce9da898ee368d913c29391a9cb3aa56118c0cd5d470f106fe692`。
 
 1. 在手机上允许文件管理器安装来自此来源的应用。
 2. 将 Release APK 或 `app/build/outputs/apk/debug/app-debug.apk` 传到手机并打开。
@@ -44,6 +44,6 @@ Debug APK 只适合自用测试。正式覆盖升级必须使用同一把 Releas
 
 应用启动或回到前台后最多每 24 小时自动检查一次，也可以在“设置 → 更新中心”手动检查。它只检查仓库的稳定 Release，下载前要求 HTTPS GitHub 地址和 `.sha256` 文件。下载状态会显示连接、断点续传、下载、校验和安装器交接；离开更新页或进程重启后可继续已保存的 `.part` 文件。应用还会校验包名、版本号不能降级以及签名证书必须与当前安装包一致，校验通过后交给 Android 系统安装器。安装仍需要用户确认，不会静默安装；如果你暂时关闭某个版本的提示，应用会记住该版本，不会在自动检查时反复打扰，有新版本时会再次提醒；手动点击“检查更新”仍可重新查看。若你取消安装或先去开启未知来源权限，更新中心会显示“重新打开安装器”，再次点击会重新校验本地包，不会重复下载；本地包丢失或校验失败时才需要重新下载。检查失败不会占用 24 小时窗口，下一次启动或回到前台会继续重试。
 
-当前工作树的 Release 构建若未提供本地签名环境变量，只会生成 `app-release-unsigned.apk`，它不适合覆盖安装；正式包仍需应用持有人自己的 Release keystore。v0.3.8 Release 已由 CI 使用仓库签名 Secret 构建，并完成 APK 摘要、包名、版本和签名校验；其签名证书与 v0.3.7 一致，可以覆盖升级。
+当前工作树的 Release 构建若未提供本地签名环境变量，只会生成 `app-release-unsigned.apk`，它不适合覆盖安装；正式包仍需应用持有人自己的 Release keystore。v0.3.9 Release 已由 CI 使用仓库签名 Secret 构建，并完成 APK 摘要、包名、版本和签名校验；其签名证书与 v0.3.7 一致，可以覆盖升级。
 
 
