@@ -55,6 +55,8 @@ data class AppSettings(
     val countdownFeedbackMode: String = "GLOBAL",
     val feedbackAudioPath: String? = null,
     val feedbackAudioName: String? = null,
+    /** Optional system ringtone URI; null means the packaged Learn List sound. */
+    val feedbackAudioUri: String? = null,
 )
 
 /**
@@ -131,6 +133,7 @@ class SettingsRepository(private val context: Context) {
         val countdownFeedbackMode = stringPreferencesKey("countdown_feedback_mode")
         val feedbackAudioPath = stringPreferencesKey("feedback_audio_path")
         val feedbackAudioName = stringPreferencesKey("feedback_audio_name")
+        val feedbackAudioUri = stringPreferencesKey("feedback_audio_uri")
     }
 
     val settings: Flow<AppSettings> = context.learnListDataStore.data.map { values ->
@@ -171,6 +174,7 @@ class SettingsRepository(private val context: Context) {
             countdownFeedbackMode = values[Keys.countdownFeedbackMode].normalizedFeedbackMode(),
             feedbackAudioPath = values[Keys.feedbackAudioPath]?.takeIf(String::isNotBlank),
             feedbackAudioName = values[Keys.feedbackAudioName]?.takeIf(String::isNotBlank),
+            feedbackAudioUri = values[Keys.feedbackAudioUri]?.takeIf(String::isNotBlank),
         )
     }
 
@@ -213,6 +217,7 @@ class SettingsRepository(private val context: Context) {
                 countdownFeedbackMode = values[Keys.countdownFeedbackMode].normalizedFeedbackMode(),
                 feedbackAudioPath = values[Keys.feedbackAudioPath]?.takeIf(String::isNotBlank),
                 feedbackAudioName = values[Keys.feedbackAudioName]?.takeIf(String::isNotBlank),
+                feedbackAudioUri = values[Keys.feedbackAudioUri]?.takeIf(String::isNotBlank),
             )
             val next = transform(current)
             values[Keys.reviewLimit] = next.reviewLimit.coerceIn(1, 1000)
@@ -253,6 +258,7 @@ class SettingsRepository(private val context: Context) {
             values[Keys.countdownFeedbackMode] = next.countdownFeedbackMode.normalizedFeedbackMode()
             next.feedbackAudioPath?.takeIf(String::isNotBlank)?.let { values[Keys.feedbackAudioPath] = it } ?: values.remove(Keys.feedbackAudioPath)
             next.feedbackAudioName?.takeIf(String::isNotBlank)?.let { values[Keys.feedbackAudioName] = it } ?: values.remove(Keys.feedbackAudioName)
+            next.feedbackAudioUri?.takeIf(String::isNotBlank)?.let { values[Keys.feedbackAudioUri] = it } ?: values.remove(Keys.feedbackAudioUri)
         }
     }
 
@@ -302,3 +308,4 @@ class SettingsRepository(private val context: Context) {
         return claimed
     }
 }
+
