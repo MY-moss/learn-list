@@ -2,7 +2,7 @@
 
 ## 安装首版 APK
 
-推荐下载当前已签名的稳定版：[v0.3.3 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.3.3)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.3.3/learn-list-v0.3.3.apk) 或 [SHA-256 摘要](https://github.com/MY-moss/learn-list/releases/download/v0.3.3/learn-list-v0.3.3.apk.sha256)。
+推荐下载当前已签名的稳定版：[v0.3.4 GitHub Release](https://github.com/MY-moss/learn-list/releases/tag/v0.3.4)，直接获取 [APK](https://github.com/MY-moss/learn-list/releases/download/v0.3.4/learn-list-v0.3.4.apk) 或 [SHA-256 摘要](https://github.com/MY-moss/learn-list/releases/download/v0.3.4/learn-list-v0.3.4.apk.sha256)。
 
 1. 在手机上允许文件管理器安装来自此来源的应用。
 2. 将 Release APK 或 `app/build/outputs/apk/debug/app-debug.apk` 传到手机并打开。
