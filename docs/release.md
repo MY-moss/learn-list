@@ -9,17 +9,17 @@
 - `RELEASE_KEY_ALIAS`
 - `RELEASE_KEY_PASSWORD`
 
-Secret 值不会回显，也不应写入 Issue、提交或聊天记录。需要由仓库持有人在 GitHub Actions 的仓库设置中配置这四项后，Release 工作流才会发布正式包；缺少签名 Secret 时应失败，不发布未签名包。当前仓库已配置这四个 Secret 名称，值仍只由 GitHub Actions 使用；当前稳定版为 `v0.3.3`。
+Secret 值不会回显，也不应写入 Issue、提交或聊天记录。需要由仓库持有人在 GitHub Actions 的仓库设置中配置这四项后，Release 工作流才会发布正式包；缺少签名 Secret 时应失败，不发布未签名包。当前仓库已配置这四个 Secret 名称，值仍只由 GitHub Actions 使用；当前稳定版为 `v0.3.4`。
 
 ## 发布步骤
 
 1. 修改 `app/build.gradle.kts` 中的 `versionCode` 和 `versionName`。
 2. 在 `CHANGELOG` 或 GitHub 提交中记录用户可见变更，并先合并到 `main`。
-3. 不要重复使用已经发布的标签；创建并推送形如 `vX.Y.Z` 的新标签（当前稳定版是 `v0.3.3`，以下用下一版 `v0.3.4` 举例）：
+3. 不要重复使用已经发布的标签；创建并推送形如 `vX.Y.Z` 的新标签（当前稳定版是 `v0.3.4`，以下用下一版 `v0.3.5` 举例）：
 
    ```powershell
-   git tag v0.3.4
-   git push origin v0.3.4
+   git tag v0.3.5
+   git push origin v0.3.5
    ```
 
 4. `release.yml` 会用 Actions Secret 签名 Release APK，验证签名，生成同名 `.sha256` 文件并创建 GitHub Release。

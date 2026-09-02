@@ -1,5 +1,12 @@
 # 发布前待办
 
+## v0.3.4 已发布：API 36 学习日历稳定性
+
+- [x] 修复 API 36 打开学习日历时 Compose 对话框在后台线程创建的问题。
+- [x] v0.3.4 已完成 API 26/33/36 构建、Lint、单元测试、AndroidTest、签名校验和 GitHub Release。
+- [x] 已上传 [v0.3.4 APK](https://github.com/MY-moss/learn-list/releases/download/v0.3.4/learn-list-v0.3.4.apk)，SHA-256 为 `35095b88dced6a5b5dcd6bb81716135f80f9518f5e8caab209adb1c620421213`。
+- [ ] 真机验证 v0.3.3 覆盖升级、学习日历、更新取消/重试和安装器回查。
+
 ## v0.3.3 已发布：统一旧版摘要提醒配置
 
 - [x] 旧版全局进度提醒在启动或备份导出时迁移为统一 `SUMMARY` 提醒，迁移失败可重试且不会丢失旧字段。
