@@ -1962,8 +1962,6 @@ private fun ReviewWeakPointRow(index: Int, point: ReviewWeakPoint) {
 
 @Composable
 private fun SettingsScreen(
-@Composable
-private fun SettingsScreen(
     state: LearnListUiState,
     padding: PaddingValues,
     projects: List<ProjectEntity>,
